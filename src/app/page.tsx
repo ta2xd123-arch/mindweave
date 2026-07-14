@@ -136,11 +136,9 @@ export default function Home() {
             <nav className="hidden md:flex items-center gap-8">
               <a className="text-primary-fixed font-bold border-b-2 border-primary-fixed py-1 transition-colors duration-300" href="#">홈</a>
               <a className="text-on-surface-variant font-medium hover:text-primary-fixed transition-colors duration-300" href="#">기능 소개</a>
-              <a className="text-on-surface-variant font-medium hover:text-primary-fixed transition-colors duration-300" href="#">요금 안내</a>
-              <a className="text-on-surface-variant font-medium hover:text-primary-fixed transition-colors duration-300" href="#">소개</a>
             </nav>
             <div>
-              <button onClick={() => setShowLogin(!showLogin)} className="primary-gradient-btn px-6 py-2.5 rounded-full font-label-caps text-white">시작하기</button>
+              <button onClick={() => setShowLogin(!showLogin)} className="primary-gradient-btn px-6 py-2.5 rounded-full font-label-caps text-white">입장하기</button>
             </div>
           </div>
         </header>
@@ -187,11 +185,8 @@ export default function Home() {
             ) : (
               <div className="flex flex-col md:flex-row items-center justify-center gap-4">
                 <button onClick={() => setShowLogin(true)} className="primary-gradient-btn px-10 py-4 rounded-xl font-headline-md text-[18px] text-white flex items-center gap-3">
-                  무료로 시작하기
+                  MINDWEAVE 시작하기
                   <span className="material-symbols-outlined">arrow_forward</span>
-                </button>
-                <button className="glass-card px-10 py-4 rounded-xl font-headline-md text-[18px] text-on-surface hover:bg-white/10">
-                  데모 예약
                 </button>
               </div>
             )}
