@@ -336,12 +336,13 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
         if (data.aiReport) {
           setInitialAnalysis({
             status: data.aiReport.status,
-            summary: data.aiReport.summary,
-            keyTopics: data.aiReport.core_topics || [],
-            commonGrounds: data.aiReport.common_ideas || [],
-            differentViews: data.aiReport.different_ideas || [],
-            nextQuestions: data.aiReport.new_questions || [],
-            actionItems: data.aiReport.action_items || []
+            title: data.aiReport.title,
+            conclusion: data.aiReport.conclusion,
+            supportingIdeas: data.aiReport.supportingIdeas || [],
+            opposingIdeas: data.aiReport.opposingIdeas || [],
+            newInsight: data.aiReport.newInsight || '',
+            unresolvedQuestions: data.aiReport.unresolvedQuestions || [],
+            actionItems: data.aiReport.actionItems || []
           });
         }
         const map: Record<string, Reaction[]> = {};
@@ -361,7 +362,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
 
     const handleDownloadMarkdown = () => {
     if (!initialAnalysis || !meeting) return;
-    const md = `# ${meeting.title}\n\n**주제**: ${meeting.topic}\n**날짜**: ${new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('ko-KR')}\n\n## 요약\n${initialAnalysis.summary}\n\n## 핵심 주제\n${initialAnalysis.keyTopics.map(t => `- **${t.topic}**: ${t.description}`).join('\n')}\n\n## 공통 의견\n${initialAnalysis.commonGrounds.map(i => `- ${i}`).join('\n')}\n\n## 다른 시각\n${initialAnalysis.differentViews.map(i => `- ${i}`).join('\n')}\n\n## 실천 항목\n${initialAnalysis.actionItems.map(i => `- ${i}`).join('\n')}\n\n## 다음 논의 질문\n${initialAnalysis.nextQuestions.map(i => `- ${i}`).join('\n')}\n`;
+    const md = `# ${meeting.title}\n\n**주제**: ${meeting.topic}\n**날짜**: ${new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('ko-KR')}\n\n## 집단지성\n### ${initialAnalysis.title}\n${initialAnalysis.conclusion}\n\n## 공통 지지 의견\n${initialAnalysis.supportingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 반대/다른 시각\n${initialAnalysis.opposingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 새로운 통찰\n${initialAnalysis.newInsight}\n\n## 미해결 질문\n${initialAnalysis.unresolvedQuestions.map(i => `- ${i}`).join('\n')}\n\n## 실천 항목\n${initialAnalysis.actionItems.map(i => `- ${i}`).join('\n')}\n`;
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
