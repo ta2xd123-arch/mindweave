@@ -30,6 +30,10 @@
 }
 
 /* Base Styles */
+html, body {
+  overscroll-behavior-y: none; /* Disable pull-to-refresh */
+}
+
 body {
   background-color: #0A0A0A;
   color: #e2e2e4;
@@ -37,6 +41,20 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input, textarea, p, h1, h2, h3, h4, span {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+button, a {
+  touch-action: manipulation; /* Prevent double-tap zoom delay */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Glassmorphism Utilities */

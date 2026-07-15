@@ -32,13 +32,11 @@ interface Reaction {
   note_id: string; user_id: string; user_name: string; reaction_type: string;
 }
 interface AIAnalysis {
-  status?: string;
-  title: string;
-  conclusion: string;
-  supportingIdeas: string[];
-  opposingIdeas: string[];
-  newInsight: string;
-  unresolvedQuestions: string[];
+  summary: string;
+  keyTopics: { topic: string; description: string }[];
+  commonGrounds: string[];
+  differentViews: string[];
+  nextQuestions: string[];
   actionItems: string[];
 }
 
@@ -66,66 +64,88 @@ function mockGetReactions(meetingId: string): Record<string, Reaction[]> {
 // ── AI Section Component ──────────────────────────────────────────────────────
 
 function AIAnalysisSection({
-  meetingId, notes, isCreator, initialAnalysis
+  meetingId, notes, isCreator,
 }: {
   meetingId: string;
   notes: Note[];
   isCreator: boolean;
-  initialAnalysis?: AIAnalysis | null;
 }) {
-  const [analysis, setAnalysis] = useState<AIAnalysis | null>(initialAnalysis || null);
+  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isPublishing, setIsPublishing] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(true);
-  
-  // Update state when initial analysis changes
+
+  // Load cached analysis from localStorage
   useEffect(() => {
-    if (initialAnalysis) setAnalysis(initialAnalysis);
-  }, [initialAnalysis]);
+    const cached = localStorage.getItem(`mindweave_analysis_${meetingId}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        // 하위 호환성 (구조가 바뀐 경우 처리)
+        setAnalysis(parsed.analysis ? parsed.analysis : parsed);
+      } catch {}
+    }
+  }, [meetingId]);
 
   const handleAnalyze = async () => {
     if (notes.length === 0) {
       setError('분석할 기록이 없습니다.');
       return;
     }
+
+    // 간단한 해시 함수로 입력값 고유성 검증
+    const notesStr = JSON.stringify(notes.map(n => n.content));
+    let currentHash = 0;
+    for (let i = 0; i < notesStr.length; i++) {
+      currentHash = ((currentHash << 5) - currentHash) + notesStr.charCodeAt(i);
+      currentHash |= 0;
+    }
+    const hashStr = currentHash.toString();
+
+    // 동일한 입력인 경우 캐시된 결과 재사용
+    const cachedItem = localStorage.getItem(`mindweave_analysis_${meetingId}`);
+    if (cachedItem) {
+      try {
+        const parsed = JSON.parse(cachedItem);
+        if (parsed.hash === hashStr && parsed.analysis) {
+          setAnalysis(parsed.analysis);
+          return; // 실제 API 호출 차단 (즉시 종료)
+        }
+      } catch {}
+    }
+
     setIsAnalyzing(true);
     setError('');
+
     try {
       const body: any = { meetingId };
       if (!isSupabaseConfigured) {
-        body.notes = notes.map(n => ({ author_name: n.author_name, note_type: n.note_type, content: n.content }));
+        body.notes = notes.map(n => ({
+          author_name: n.author_name,
+          note_type: n.note_type,
+          content: n.content,
+        }));
       }
+
       const res = await apiFetch(`/api/meetings/${meetingId}/analyze`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
+
       if (!res.ok) throw new Error(data.error || 'AI 분석 실패');
-      setAnalysis({ ...data.analysis, status: 'draft' });
+
+      setAnalysis(data.analysis);
+      // Cache locally with hash
+      localStorage.setItem(`mindweave_analysis_${meetingId}`, JSON.stringify({
+        hash: hashStr,
+        analysis: data.analysis
+      }));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setIsAnalyzing(false);
-    }
-  };
-
-  const handlePublish = async () => {
-    if (!analysis) return;
-    setIsPublishing(true);
-    try {
-      const res = await apiFetch(`/api/meetings/${meetingId}/report`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'published' }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '공개 실패');
-      setAnalysis({ ...analysis, status: 'published' });
-      alert('성공적으로 공개되었습니다!');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsPublishing(false);
     }
   };
 
@@ -138,7 +158,7 @@ function AIAnalysisSection({
         </h3>
         <div className="flex items-center gap-3">
           <span className="text-[10px] bg-primary/10 text-primary px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-primary/20">
-            Gemini 3.5 Flash
+            Gemini 2.0 Flash
           </span>
           <button onClick={() => setExpanded(!expanded)} className="text-on-surface-variant hover:text-on-surface transition-colors p-1">
             <span className="material-symbols-outlined text-[20px]">{expanded ? 'expand_less' : 'expand_more'}</span>
@@ -168,25 +188,44 @@ function AIAnalysisSection({
 
       {analysis && expanded && (
         <div className="space-y-6">
-          {/* Title & Conclusion */}
+          {/* Summary */}
           <div className="glass-card-elevated rounded-2xl p-6 relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-primary to-secondary"></div>
-            <span className="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary font-label-caps text-[10px] border border-primary/20 mb-3 tracking-widest uppercase">집단지성</span>
-            <h3 className="font-headline-sm text-on-surface mb-3">{analysis.title}</h3>
-            <p className="text-on-surface font-body-lg leading-relaxed text-[15px]">{analysis.conclusion}</p>
+            <span className="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary font-label-caps text-[10px] border border-primary/20 mb-3 tracking-widest uppercase">요약</span>
+            <p className="text-on-surface font-body-lg leading-relaxed text-[15px]">{analysis.summary}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Supporting Ideas */}
+            {/* Key Topics */}
+            <div className="glass-card rounded-xl p-6 space-y-4 hover:bg-surface-variant/20 transition-all">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-secondary">category</span>
+                </div>
+                <h4 className="font-bold text-on-surface">핵심 주제</h4>
+              </div>
+              <div className="space-y-3">
+                {analysis.keyTopics.map((t, i) => (
+                  <div key={i} className="space-y-1">
+                    <p className="font-semibold text-on-surface text-sm flex items-start gap-2">
+                      <span className="text-secondary shrink-0">•</span> {t.topic}
+                    </p>
+                    <p className="text-xs text-on-surface-variant pl-4 leading-relaxed">{t.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Common Grounds */}
             <div className="glass-card rounded-xl p-6 space-y-4 hover:bg-surface-variant/20 transition-all">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
                   <span className="material-symbols-outlined text-emerald-400">handshake</span>
                 </div>
-                <h4 className="font-bold text-on-surface">공통 지지 의견</h4>
+                <h4 className="font-bold text-on-surface">공통 의견</h4>
               </div>
               <ul className="space-y-2">
-                {analysis.supportingIdeas.map((g, i) => (
+                {analysis.commonGrounds.map((g, i) => (
                   <li key={i} className="flex gap-2 text-sm text-on-surface-variant">
                     <span className="text-emerald-400 shrink-0">✓</span>
                     <span className="leading-relaxed">{g}</span>
@@ -195,17 +234,17 @@ function AIAnalysisSection({
               </ul>
             </div>
 
-            {/* Opposing Ideas */}
-            {analysis.opposingIdeas.length > 0 && (
+            {/* Different Views */}
+            {analysis.differentViews.length > 0 && (
               <div className="glass-card rounded-xl p-6 space-y-4 hover:bg-surface-variant/20 transition-all">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-8 h-8 rounded-lg bg-error/10 flex items-center justify-center">
                     <span className="material-symbols-outlined text-error">alt_route</span>
                   </div>
-                  <h4 className="font-bold text-on-surface">반대/다른 시각</h4>
+                  <h4 className="font-bold text-on-surface">다른 시각</h4>
                 </div>
                 <ul className="space-y-2">
-                  {analysis.opposingIdeas.map((v, i) => (
+                  {analysis.differentViews.map((v, i) => (
                     <li key={i} className="flex gap-2 text-sm text-on-surface-variant">
                       <span className="text-error shrink-0">⚡</span>
                       <span className="leading-relaxed">{v}</span>
@@ -214,21 +253,8 @@ function AIAnalysisSection({
                 </ul>
               </div>
             )}
-            
-            {/* New Insight */}
-            <div className="glass-card rounded-xl p-6 space-y-4 hover:bg-surface-variant/20 transition-all md:col-span-2">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-secondary">lightbulb</span>
-                </div>
-                <h4 className="font-bold text-on-surface">새로운 통찰</h4>
-              </div>
-              <p className="text-sm text-on-surface-variant leading-relaxed">
-                {analysis.newInsight}
-              </p>
-            </div>
 
-            {/* Unresolved Questions / Action Items */}
+            {/* Next Questions / Action Items */}
             <div className="glass-card rounded-xl p-6 space-y-6 hover:bg-surface-variant/20 transition-all md:col-span-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -252,10 +278,10 @@ function AIAnalysisSection({
                     <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
                       <span className="material-symbols-outlined text-purple-400">help</span>
                     </div>
-                    <h4 className="font-bold text-on-surface">미해결 질문</h4>
+                    <h4 className="font-bold text-on-surface">다음 논의 질문</h4>
                   </div>
                   <ul className="space-y-2">
-                    {analysis.unresolvedQuestions.map((q, i) => (
+                    {analysis.nextQuestions.map((q, i) => (
                       <li key={i} className="flex gap-2 text-sm text-on-surface-variant">
                         <span className="text-purple-400 shrink-0 font-bold">Q.</span>
                         <span className="leading-relaxed">{q}</span>
@@ -267,13 +293,7 @@ function AIAnalysisSection({
             </div>
           </div>
           
-          <div className="flex justify-end pt-2 gap-3">
-            {analysis.status === 'draft' && (
-              <button onClick={handlePublish} disabled={isPublishing} className="text-xs font-semibold text-white bg-primary px-4 py-2 rounded-full hover:scale-105 transition-all shadow-md flex items-center gap-1">
-                <span className="material-symbols-outlined text-[14px]">public</span>
-                {isPublishing ? '공개 중...' : '참여자에게 공개하기'}
-              </button>
-            )}
+          <div className="flex justify-end pt-2">
             <button onClick={handleAnalyze} disabled={isAnalyzing} className="text-xs font-semibold text-on-surface-variant hover:text-primary flex items-center gap-1 transition-colors">
               <span className="material-symbols-outlined text-[14px]">refresh</span>
               재분석
@@ -301,7 +321,6 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
   const [copied, setCopied] = useState(false);
 
   const [currentUserRole, setCurrentUserRole] = useState<'owner' | 'guest'>('guest');
-  const [initialAnalysis, setInitialAnalysis] = useState<AIAnalysis | null>(null);
 
   // ── Data load ─────────────────────────────────────────────────────────────
 
@@ -332,18 +351,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
         setMeeting(data.meeting);
         setParticipants(data.participants || []);
         setNotes(data.notes || []);
-                setCurrentUserRole(data.currentUserRole || 'guest');
-        if (data.aiReport) {
-          setInitialAnalysis({
-            status: data.aiReport.status,
-            summary: data.aiReport.summary,
-            keyTopics: data.aiReport.core_topics || [],
-            commonGrounds: data.aiReport.common_ideas || [],
-            differentViews: data.aiReport.different_ideas || [],
-            nextQuestions: data.aiReport.new_questions || [],
-            actionItems: data.aiReport.action_items || []
-          });
-        }
+        setCurrentUserRole(data.currentUserRole || 'guest');
         const map: Record<string, Reaction[]> = {};
         for (const r of data.reactions || []) {
           if (!map[r.note_id]) map[r.note_id] = [];
@@ -358,20 +366,6 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
     };
     load();
   }, [session, meetingId]);
-
-    const handleDownloadMarkdown = () => {
-    if (!initialAnalysis || !meeting) return;
-    const md = `# ${meeting.title}\n\n**주제**: ${meeting.topic}\n**날짜**: ${new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('ko-KR')}\n\n## 요약\n${initialAnalysis.summary}\n\n## 핵심 주제\n${initialAnalysis.keyTopics.map(t => `- **${t.topic}**: ${t.description}`).join('\n')}\n\n## 공통 의견\n${initialAnalysis.commonGrounds.map(i => `- ${i}`).join('\n')}\n\n## 다른 시각\n${initialAnalysis.differentViews.map(i => `- ${i}`).join('\n')}\n\n## 실천 항목\n${initialAnalysis.actionItems.map(i => `- ${i}`).join('\n')}\n\n## 다음 논의 질문\n${initialAnalysis.nextQuestions.map(i => `- ${i}`).join('\n')}\n`;
-    const blob = new Blob([md], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${meeting.title}_report.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
 
   const handleShare = async () => {
     const url = window.location.href;
@@ -444,12 +438,6 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
             </h1>
           </div>
           <div className="flex items-center gap-2">
-                        {initialAnalysis?.status === 'published' && (
-              <button onClick={handleDownloadMarkdown} className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-variant hover:bg-surface-variant/80 transition-colors text-sm font-bold">
-                <span className="material-symbols-outlined text-[18px]">download</span>
-                <span className="hidden sm:inline">MD 다운로드</span>
-              </button>
-            )}
             <button onClick={handleShare} className="flex items-center gap-2 px-4 py-2 rounded-full glass-card hover:bg-surface-variant transition-colors text-sm font-semibold text-on-surface">
               <span className="material-symbols-outlined text-[18px]">{copied ? 'check' : 'share'}</span>
               <span className="hidden sm:inline">{copied ? '복사됨!' : '공유하기'}</span>
@@ -500,9 +488,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
 
         {/* AI Analysis */}
         {currentUserRole === 'owner' ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} isCreator={isCreator} initialAnalysis={initialAnalysis} />
-        ) : initialAnalysis ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} isCreator={isCreator} initialAnalysis={initialAnalysis} />
+          <AIAnalysisSection meetingId={meetingId} notes={notes} isCreator={isCreator} />
         ) : (
           <div className="glass-card rounded-2xl p-6 flex items-center justify-center text-center space-y-4">
              <p className="text-sm text-on-surface-variant">진행자가 AI 리포트를 공개하면 이 위치에 나타납니다.</p>

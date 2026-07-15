@@ -1,24 +1,16 @@
+import { apiFetch } from '@/lib/api-client';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 export interface UserSession {
   id: string;
   name: string;
   email?: string;
+  role: 'owner' | 'guest';
+  guestToken?: string;
+  meetingId?: string;
 }
 
 const USER_SESSION_KEY = 'mindweave_user_session';
-
-// Helper to generate a random UUID on the client side if crypto.randomUUID is not available
-function generateUUID(): string {
-  if (typeof window !== 'undefined' && window.crypto && window.crypto.randomUUID) {
-    return window.crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
 // Get the current user session from local storage (Client-side only)
 export function getLocalSession(): UserSession | null {
@@ -32,43 +24,55 @@ export function getLocalSession(): UserSession | null {
   }
 }
 
-// Save session to local storage and sync with Supabase users table
+// Save a guest session directly (called after successfully joining a meeting)
+export function saveGuestSession(session: UserSession): UserSession {
+  if (typeof window === 'undefined') throw new Error('Client-side only');
+  localStorage.setItem(USER_SESSION_KEY, JSON.stringify(session));
+  return session;
+}
+
+// Legacy saveSession mainly for owner or backward compatibility
 export async function saveSession(name: string, email?: string): Promise<UserSession> {
   if (typeof window === 'undefined') throw new Error('Client-side only');
   
   let session = getLocalSession();
-  const userId = session?.id || generateUUID();
+  let userId = session?.id || '';
+  let finalEmail = email || session?.email || '';
+  let role: 'owner' | 'guest' = 'guest';
   
+  // Sync to database if Supabase is configured
+  if (isSupabaseConfigured) {
+    const { data: { session: sbSession } } = await supabase.auth.getSession();
+    if (sbSession) {
+      userId = sbSession.user.id;
+      finalEmail = sbSession.user.email || finalEmail;
+      
+      // Check if user is in app_admins
+      const { data: adminData } = await supabase
+        .from('app_admins')
+        .select('role')
+        .eq('user_id', userId)
+        .maybeSingle();
+        
+      role = adminData ? 'owner' : 'guest';
+    } else if (!userId) {
+      // Just fallback for non-supabase local testing
+      userId = 'local-guest-' + Math.random().toString(36).substr(2, 9);
+    }
+  } else if (!userId) {
+    userId = 'local-guest-' + Math.random().toString(36).substr(2, 9);
+  }
+
   const newSession: UserSession = {
     id: userId,
     name: name,
-    email: email || session?.email || `${userId.slice(0, 8)}@guest.mindweave.io`,
+    email: finalEmail,
+    role: role,
+    guestToken: session?.guestToken,
+    meetingId: session?.meetingId,
   };
 
-  // Save locally
   localStorage.setItem(USER_SESSION_KEY, JSON.stringify(newSession));
-
-  // Sync to database if Supabase is configured
-  if (isSupabaseConfigured) {
-    try {
-      const res = await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: userId,
-          name: name,
-          email: newSession.email,
-        }),
-      });
-      if (!res.ok) {
-        const errData = await res.json();
-        console.error('Failed to sync user with Supabase:', errData);
-      }
-    } catch (err) {
-      console.error('Database error in saveSession:', err);
-    }
-  }
-
   return newSession;
 }
 
@@ -78,3 +82,4 @@ export function clearSession() {
     localStorage.removeItem(USER_SESSION_KEY);
   }
 }
+

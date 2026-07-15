@@ -11,28 +11,19 @@
  *   한 곳에서 관리할 수 있습니다.
  */
 import 'server-only';
-
+import crypto from 'crypto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-/**
- * Supabase 설정 여부 플래그
- * API 라우트에서 Mock 모드 분기에 사용
- */
 export const isSupabaseConfigured: boolean = !!(supabaseUrl && supabaseKey);
 
-/**
- * 서버 전용 Supabase 클라이언트 인스턴스
- * 미설정 상태에서 사용하면 런타임 오류 발생
- */
 let _supabase: SupabaseClient | null = null;
 
 if (isSupabaseConfigured) {
   _supabase = createClient(supabaseUrl!, supabaseKey!, {
     auth: {
-      // 서버 사이드에서는 자동 세션 갱신 불필요
       autoRefreshToken: false,
       persistSession: false,
       detectSessionInUrl: false,
@@ -42,14 +33,6 @@ if (isSupabaseConfigured) {
 
 export const supabase = _supabase as SupabaseClient;
 
-/**
- * Supabase 클라이언트를 반환하거나, 미설정 시 명확한 오류를 던집니다.
- * API 라우트에서 isSupabaseConfigured 분기 없이 안전하게 사용 가능합니다.
- *
- * @example
- * const db = getSupabase();
- * const { data } = await db.from('meetings').select('*');
- */
 export function getSupabase(): SupabaseClient {
   if (!_supabase) {
     throw new Error(
@@ -59,3 +42,52 @@ export function getSupabase(): SupabaseClient {
   }
   return _supabase;
 }
+
+/**
+ * Request의 Authorization 헤더에서 토큰을 추출하여 유저 정보(Owner 또는 Guest)를 반환합니다.
+ */
+export async function getAuthUser(request: Request) {
+  if (!isSupabaseConfigured) return null; // Mock mode
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const token = authHeader.substring(7);
+  
+  if (token.startsWith('guest_')) {
+    const rawToken = token.substring(6);
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const { data: guest, error } = await supabase
+      .from('guest_tokens')
+      .select('participant_id, meeting_id, expires_at, revoked_at')
+      .eq('token_hash', tokenHash)
+      .maybeSingle();
+      
+    if (error || !guest) return null;
+    if (guest.revoked_at || new Date(guest.expires_at) < new Date()) return null; // 폐기됨 또는 만료됨
+    
+    return {
+      id: guest.participant_id,
+      role: 'guest',
+      meeting_id: guest.meeting_id
+    };
+  } else {
+    // Owner or Participant via Supabase Auth
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) return null;
+    
+    // Check if user is in app_admins
+    const { data: adminData } = await supabase
+      .from('app_admins')
+      .select('role')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const isOwner = !!adminData;
+
+    return {
+      id: user.id,
+      email: user.email,
+      role: isOwner ? 'owner' : 'guest'
+    };
+  }
+}
+

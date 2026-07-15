@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase-server';
+import { supabase, isSupabaseConfigured, getAuthUser } from '@/lib/supabase-server';
 
 // PATCH: Update note content
 export async function PATCH(
@@ -9,15 +9,43 @@ export async function PATCH(
   const { noteId } = await params;
 
   try {
-    const body = await request.json();
-    const { content, authorId } = body;
-
-    if (!content || !authorId) {
-      return NextResponse.json({ error: 'content and authorId are required' }, { status: 400 });
-    }
-
     if (!isSupabaseConfigured) {
       return NextResponse.json({ error: 'Supabase is not configured' }, { status: 500 });
+    }
+
+    const authUser = await getAuthUser(request);
+    if (!authUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { content } = body;
+    const authorId = authUser.id;
+
+    if (!content) {
+      return NextResponse.json({ error: 'content is required' }, { status: 400 });
+    }
+
+    // Check if note belongs to a closed meeting
+    const { data: noteCheck, error: noteError } = await supabase
+      .from('notes')
+      .select('meeting_id')
+      .eq('id', noteId)
+      .eq('author_id', authorId)
+      .single();
+      
+    if (noteError || !noteCheck) {
+      return NextResponse.json({ error: 'Note not found or unauthorized' }, { status: 404 });
+    }
+
+    const { data: meeting, error: meetingError } = await supabase
+      .from('meetings')
+      .select('status')
+      .eq('id', noteCheck.meeting_id)
+      .single();
+
+    if (meetingError || meeting?.status === 'closed') {
+      return NextResponse.json({ error: 'Cannot edit notes in a closed meeting' }, { status: 403 });
     }
 
     // Security: only the author can update their own note
@@ -49,19 +77,41 @@ export async function DELETE(
   const { noteId } = await params;
 
   try {
-    const { searchParams } = new URL(request.url);
-    const authorId = searchParams.get('authorId');
-
-    if (!authorId) {
-      return NextResponse.json({ error: 'authorId is required' }, { status: 400 });
-    }
-
     if (!isSupabaseConfigured) {
       return NextResponse.json({ error: 'Supabase is not configured' }, { status: 500 });
     }
 
+    const authUser = await getAuthUser(request);
+    if (!authUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const authorId = authUser.id;
+
+    // Check if note belongs to a closed meeting
+    const { data: noteCheck, error: noteError } = await supabase
+      .from('notes')
+      .select('meeting_id')
+      .eq('id', noteId)
+      .eq('author_id', authorId)
+      .single();
+      
+    if (noteError || !noteCheck) {
+      return NextResponse.json({ error: 'Note not found or unauthorized' }, { status: 404 });
+    }
+
+    const { data: meeting, error: meetingError } = await supabase
+      .from('meetings')
+      .select('status')
+      .eq('id', noteCheck.meeting_id)
+      .single();
+
+    if (meetingError || meeting?.status === 'closed') {
+      return NextResponse.json({ error: 'Cannot delete notes in a closed meeting' }, { status: 403 });
+    }
+
     // Security: only the author can delete their own note
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('notes')
       .delete()
       .eq('id', noteId)

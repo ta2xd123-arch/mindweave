@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase-server';
+import { supabase, isSupabaseConfigured, getAuthUser } from '@/lib/supabase-server';
 
 // Helper to generate a 6-character random alphanumeric code
 function generateInviteCode(): string {
@@ -13,21 +13,17 @@ function generateInviteCode(): string {
 
 // GET: List meetings for a user
 export async function GET(request: NextRequest) {
+  if (!isSupabaseConfigured) {
+    return NextResponse.json({ meetings: [], warning: 'Supabase is not configured' });
+  }
+
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get('userId');
-
   if (!userId) {
     return NextResponse.json({ error: 'userId is required' }, { status: 400 });
   }
 
-  if (!isSupabaseConfigured) {
-    // Return empty list if Supabase is not configured yet
-    return NextResponse.json({ meetings: [], warning: 'Supabase is not configured' });
-  }
-
   try {
-    // Fetch meetings created by the user or where the user is a participant
-    // First, get meeting IDs the user participates in
     const { data: participantData, error: participantError } = await supabase
       .from('meeting_participants')
       .select('meeting_id')
@@ -37,7 +33,6 @@ export async function GET(request: NextRequest) {
 
     const participantMeetingIds = participantData?.map((p: { meeting_id: string }) => p.meeting_id) || [];
 
-    // Next, get all meetings either created by the user or where user is a participant
     const { data: meetings, error: meetingsError } = await supabase
       .from('meetings')
       .select('*')
@@ -56,24 +51,30 @@ export async function GET(request: NextRequest) {
 // POST: Create a new meeting
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { title, topic, description, meetingDate, userId, userName } = body;
-
-    if (!title || !topic || !userId || !userName) {
-      return NextResponse.json({ error: 'title, topic, userId, and userName are required' }, { status: 400 });
-    }
-
     if (!isSupabaseConfigured) {
       return NextResponse.json({ error: 'Supabase is not configured' }, { status: 500 });
     }
 
-    // 1. Ensure user exists in users table (for FK constraint)
+    const body = await request.json();
+    const { title, topic, description, meetingDate, userName, maxParticipants, userId } = body;
+
+    const authUser = await getAuthUser(request);
+
+    if (!userId) {
+      return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+    }
+
+    if (!title || !topic || !userName) {
+      return NextResponse.json({ error: 'title, topic, and userName are required' }, { status: 400 });
+    }
+
+    // 1. Ensure user exists in users table
     const { error: userError } = await supabase
       .from('users')
       .upsert({
         id: userId,
         name: userName,
-        email: `${userId.slice(0, 8)}@guest.mindweave.io`,
+        email: authUser?.email || `${userId.slice(0, 8)}@guest.mindweave.io`,
         created_at: new Date().toISOString()
       });
 
@@ -84,7 +85,6 @@ export async function POST(request: NextRequest) {
     let codeUnique = false;
     let attempts = 0;
 
-    // Verify uniqueness of the code (retry up to 5 times)
     while (!codeUnique && attempts < 5) {
       const { data, error } = await supabase
         .from('meetings')
@@ -93,33 +93,26 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (error) throw error;
-
-      if (!data) {
-        codeUnique = true;
-      } else {
-        inviteCode = generateInviteCode();
-        attempts++;
-      }
+      if (!data) codeUnique = true;
+      else { inviteCode = generateInviteCode(); attempts++; }
     }
 
     // 3. Insert meeting
     const { data: meeting, error: meetingError } = await supabase
       .from('meetings')
       .insert({
-        title,
-        topic,
-        description,
+        title, topic, description,
         meeting_date: meetingDate || new Date().toISOString(),
         invite_code: inviteCode,
         created_by: userId,
-        status: 'active'
+        status: 'active',
+        max_participants: maxParticipants || 20
       })
-      .select()
-      .single();
+      .select().single();
 
     if (meetingError) throw meetingError;
 
-    // 4. Automatically add the creator as a participant
+    // 4. Add the creator as a participant
     const { error: participantError } = await supabase
       .from('meeting_participants')
       .insert({

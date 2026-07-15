@@ -1,9 +1,10 @@
 'use client';
+import { apiFetch } from '@/lib/api-client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getLocalSession, saveSession, clearSession, UserSession } from '@/lib/auth';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 
 export default function Home() {
@@ -16,6 +17,42 @@ export default function Home() {
   const [isJoining, setIsJoining] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [showLogin, setShowLogin] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginMode, setLoginMode] = useState<'guest' | 'owner'>('guest');
+
+  const handleOwnerLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailInput.trim() || !passwordInput.trim()) return;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailInput.trim(),
+        password: passwordInput
+      });
+      if (error) throw error;
+      // After successful Supabase login, save to local session
+      const newSession = await saveSession(data.user?.user_metadata?.name || '모임장');
+      setSession(newSession);
+      setEmailInput('');
+      setPasswordInput('');
+    } catch (err: any) {
+      setErrorMsg(err.message || '로그인 실패');
+    }
+  };
+  
+  const handleGoogleLogin = async () => {
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+    } catch (err: any) {
+      setErrorMsg(err.message || '구글 로그인 실패');
+    }
+  };
+
 
   useEffect(() => {
     const activeSession = getLocalSession();
@@ -35,7 +72,7 @@ export default function Home() {
           return;
         }
 
-        const res = await fetch(`/api/meetings?userId=${userId}`);
+        const res = await apiFetch(`/api/meetings?userId=${userId}`);
         if (!res.ok) throw new Error('Failed to fetch meetings');
         const data = await res.json();
         setMeetings(data.meetings || []);
@@ -83,7 +120,7 @@ export default function Home() {
         return;
       }
 
-      const res = await fetch('/api/meetings/join', {
+      const res = await apiFetch('/api/meetings/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -134,8 +171,6 @@ export default function Home() {
               <span className="font-display-lg text-[24px] tracking-tighter text-primary">MINDWEAVE</span>
             </div>
             <nav className="hidden md:flex items-center gap-8">
-              <a className="text-primary-fixed font-bold border-b-2 border-primary-fixed py-1 transition-colors duration-300" href="#">홈</a>
-              <a className="text-on-surface-variant font-medium hover:text-primary-fixed transition-colors duration-300" href="#">기능 소개</a>
             </nav>
             <div>
               <button onClick={() => setShowLogin(!showLogin)} className="primary-gradient-btn px-6 py-2.5 rounded-full font-label-caps text-white">입장하기</button>
@@ -158,30 +193,79 @@ export default function Home() {
             </p>
 
             {showLogin ? (
-              <form onSubmit={handleLogin} className="glass-card max-w-md mx-auto p-6 rounded-2xl animate-fade-in-up">
-                <div className="mb-4 text-left">
-                  <label htmlFor="name" className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">
-                    이름 / 닉네임 입력
-                  </label>
-                  <input
-                    id="name"
-                    type="text"
-                    required
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    placeholder="홍길동"
-                    className="w-full rounded-xl border border-outline-variant/30 bg-surface/50 px-4 py-3 text-on-surface placeholder-on-surface-variant focus:border-primary focus:bg-surface focus:outline-none transition-all duration-200"
-                  />
+                            <div className="glass-card max-w-md mx-auto p-6 rounded-2xl animate-fade-in-up">
+                <div className="flex gap-2 mb-6">
+                  <button onClick={() => setLoginMode('guest')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${loginMode === 'guest' ? 'bg-primary text-white' : 'bg-surface-variant text-on-surface-variant'}`}>게스트 참여</button>
+                  <button onClick={() => setLoginMode('owner')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${loginMode === 'owner' ? 'bg-secondary text-white' : 'bg-surface-variant text-on-surface-variant'}`}>모임장 로그인</button>
                 </div>
-                {errorMsg && <p className="text-error text-xs mb-4 text-left">{errorMsg}</p>}
-                <button
-                  type="submit"
-                  className="w-full primary-gradient-btn py-3 rounded-xl font-headline-md text-[18px] text-white flex items-center justify-center gap-3"
-                >
-                  입장하기
-                  <span className="material-symbols-outlined">arrow_forward</span>
-                </button>
-              </form>
+
+                {loginMode === 'guest' ? (
+                  <form onSubmit={handleLogin}>
+                    <div className="mb-4 text-left">
+                      <label htmlFor="name" className="block text-xs font-semibold uppercase tracking-wider text-primary mb-2">
+                        이름 / 닉네임 입력 (게스트용)
+                      </label>
+                      <input
+                        id="name"
+                        type="text"
+                        required
+                        value={nameInput}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        placeholder="홍길동"
+                        className="w-full rounded-xl border border-outline-variant/30 bg-surface/50 px-4 py-3 text-on-surface placeholder-on-surface-variant focus:border-primary focus:bg-surface focus:outline-none transition-all duration-200"
+                      />
+                    </div>
+                    {errorMsg && <p className="text-error text-xs mb-4 text-left">{errorMsg}</p>}
+                    <button
+                      type="submit"
+                      className="w-full primary-gradient-btn py-3 rounded-xl font-headline-md text-[18px] text-white flex items-center justify-center gap-3"
+                    >
+                      게스트로 입장하기
+                      <span className="material-symbols-outlined">arrow_forward</span>
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleOwnerLogin}>
+                    <div className="mb-4 text-left">
+                      <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-wider text-secondary mb-2">이메일</label>
+                      <input
+                        id="email"
+                        type="email"
+                        required
+                        value={emailInput}
+                        onChange={(e) => setEmailInput(e.target.value)}
+                        placeholder="admin@mindweave.io"
+                        className="w-full rounded-xl border border-outline-variant/30 bg-surface/50 px-4 py-3 text-on-surface placeholder-on-surface-variant focus:border-secondary focus:bg-surface focus:outline-none transition-all duration-200 mb-3"
+                      />
+                      <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wider text-secondary mb-2">비밀번호</label>
+                      <input
+                        id="password"
+                        type="password"
+                        required
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full rounded-xl border border-outline-variant/30 bg-surface/50 px-4 py-3 text-on-surface placeholder-on-surface-variant focus:border-secondary focus:bg-surface focus:outline-none transition-all duration-200"
+                      />
+                    </div>
+                    {errorMsg && <p className="text-error text-xs mb-4 text-left">{errorMsg}</p>}
+                    <button
+                      type="submit"
+                      className="w-full bg-secondary hover:bg-secondary/90 py-3 rounded-xl font-headline-md text-[18px] text-white flex items-center justify-center gap-3 mb-3 transition-colors"
+                    >
+                      이메일로 로그인
+                      <span className="material-symbols-outlined">login</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleGoogleLogin}
+                      className="w-full bg-surface-container border border-outline-variant/30 hover:bg-surface-variant py-3 rounded-xl font-headline-md text-[16px] text-on-surface flex items-center justify-center gap-3 transition-colors"
+                    >
+                      Google 계정으로 로그인
+                    </button>
+                  </form>
+                )}
+              </div>
             ) : (
               <div className="flex flex-col md:flex-row items-center justify-center gap-4">
                 <button onClick={() => setShowLogin(true)} className="primary-gradient-btn px-10 py-4 rounded-xl font-headline-md text-[18px] text-white flex items-center gap-3">
@@ -213,7 +297,6 @@ export default function Home() {
                 <h2 className="font-headline-md text-on-surface mb-4">가치를 창출하는 <br/>핵심 기능</h2>
                 <p className="text-on-surface-variant">복잡한 회의 기록을 단순화하고, 흩어진 인사이트를 하나로 모으는 강력한 도구를 경험하세요.</p>
               </div>
-              <div className="font-label-caps text-primary tracking-widest border-b border-primary/20 pb-2">모든 기능 보기</div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="glass-card p-8 rounded-3xl flex flex-col gap-6">
@@ -318,20 +401,44 @@ export default function Home() {
           ) : (
             meetings.map((meeting) => (
               <div key={meeting.id} onClick={() => router.push(`/meetings/${meeting.id}`)} className="glass-card p-6 rounded-2xl flex flex-col gap-4 relative overflow-hidden group cursor-pointer hover:border-primary/50">
-                <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-100 transition-opacity">
-                  <span className="material-symbols-outlined text-primary" style={{fontVariationSettings: "'FILL' 1"}}>arrow_forward</span>
+                <div className="absolute top-0 right-0 p-3 md:p-4 flex gap-2 items-center">
+                  {meeting.status === 'closed' && meeting.created_by === session?.id && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm('이 모임을 정말 삭제하시겠습니까? (복구 불가)')) {
+                          if (localStorage.getItem('mindweave_mock_meetings')) {
+                            const all = JSON.parse(localStorage.getItem('mindweave_mock_meetings') || '[]');
+                            localStorage.setItem('mindweave_mock_meetings', JSON.stringify(all.filter((m: any) => m.id !== meeting.id)));
+                          }
+                          apiFetch(`/api/meetings/${meeting.id}?userId=${session.id}`, { method: 'DELETE' })
+                            .then(() => setMeetings(m => m.filter(x => x.id !== meeting.id)));
+                        }
+                      }}
+                      className="opacity-60 hover:opacity-100 transition-opacity hover:bg-error/10 p-2 rounded-full flex items-center justify-center text-error z-10"
+                      title="모임 삭제"
+                    >
+                      <span className="material-symbols-outlined text-[20px] md:text-xl">delete</span>
+                    </button>
+                  )}
+                  <div className="opacity-40 group-hover:opacity-100 transition-opacity p-1.5 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-primary" style={{fontVariationSettings: "'FILL' 1"}}>arrow_forward</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20">
+                <div className="flex items-center gap-4 pr-20 md:pr-16">
+                  <div className="w-12 h-12 rounded-lg flex-shrink-0 bg-primary/10 flex items-center justify-center border border-primary/20">
                     <span className="material-symbols-outlined text-primary">code</span>
                   </div>
-                  <div>
-                    <h3 className="font-headline-md text-[20px] text-on-surface leading-tight">{meeting.title}</h3>
+                  <div className="min-w-0">
+                    <h3 className="font-headline-md text-[20px] text-on-surface leading-tight truncate">{meeting.title}</h3>
                     <p className="font-mono-code text-on-surface-variant mt-1 text-xs line-clamp-1">{meeting.topic || '주제 없음'}</p>
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-outline-variant/10">
-                  <span className="font-label-caps text-on-surface-variant">{new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString()}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-label-caps text-on-surface-variant">{new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString()}</span>
+                    {meeting.status === 'closed' && <span className="font-label-caps text-error bg-error/10 px-2 py-0.5 rounded-full text-[10px]">종료됨</span>}
+                  </span>
                   <span className="font-label-caps text-primary bg-primary/10 px-3 py-1 rounded-full border border-primary/20 tracking-wider">
                     코드: {meeting.invite_code}
                   </span>

@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api-client';
 
 import { useState, useEffect, use, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -108,6 +109,9 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [isEditingMeeting, setIsEditingMeeting] = useState(false);
+  const [editMeetingForm, setEditMeetingForm] = useState({ title: '', topic: '', description: '' });
+  const [isSavingMeeting, setIsSavingMeeting] = useState(false);
 
   // Input
   const [content, setContent] = useState('');
@@ -125,6 +129,8 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const feedBottomRef = useRef<HTMLDivElement>(null);
+
+  const [currentUserRole, setCurrentUserRole] = useState<'owner' | 'guest'>('guest');
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
@@ -144,13 +150,14 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         return;
       }
 
-      const res = await fetch(`/api/meetings/${meetingId}`);
+      const res = await apiFetch(`/api/meetings/${meetingId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '데이터 로드 실패');
 
       setMeeting(data.meeting);
       setParticipants(data.participants || []);
       setNotes(data.notes || []);
+      setCurrentUserRole(data.currentUserRole || 'guest');
 
       // Build reactions map
       const reactionMap: ReactionsMap = {};
@@ -248,7 +255,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         return;
       }
 
-      const res = await fetch('/api/notes', {
+      const res = await apiFetch('/api/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ meetingId, authorId: session.id, authorName: session.name, noteType, content: tempNote.content }),
@@ -283,7 +290,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         mockSaveNotes(meetingId, updated);
         return;
       }
-      const res = await fetch(`/api/notes/${noteId}`, {
+      const res = await apiFetch(`/api/notes/${noteId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: editingContent.trim(), authorId: session.id }),
@@ -304,7 +311,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         mockSaveNotes(meetingId, mockGetNotes(meetingId).filter(n => n.id !== noteId));
         return;
       }
-      await fetch(`/api/notes/${noteId}?authorId=${session.id}`, { method: 'DELETE' });
+      await apiFetch(`/api/notes/${noteId}?authorId=${session.id}`, { method: 'DELETE' });
     } catch {
       if (original) setNotes(prev => [...prev, original].sort((a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -341,7 +348,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         return;
       }
 
-      await fetch(`/api/notes/${noteId}/react`, {
+      await apiFetch(`/api/notes/${noteId}/react`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: session.id, userName: session.name, reactionType: 'like' }),
@@ -373,7 +380,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         return;
       }
 
-      const res = await fetch(`/api/meetings/${meetingId}/close`, {
+      const res = await apiFetch(`/api/meetings/${meetingId}/close`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: session.id, status: 'closed' }),
@@ -388,10 +395,62 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
     }
   };
 
+  const handleOpenEditMeeting = () => {
+    if (!meeting) return;
+    setEditMeetingForm({ title: meeting.title, topic: meeting.topic || '', description: meeting.description || '' });
+    setIsEditingMeeting(true);
+  };
+
+  const handleSaveMeeting = async () => {
+    if (!session || !meeting || !editMeetingForm.title.trim() || !editMeetingForm.topic.trim()) return;
+    setIsSavingMeeting(true);
+
+    try {
+      if (!isSupabaseConfigured) {
+        const all: Meeting[] = JSON.parse(localStorage.getItem('mindweave_mock_meetings') || '[]');
+        const updated = all.map(m => m.id === meetingId ? { ...m, title: editMeetingForm.title, topic: editMeetingForm.topic, description: editMeetingForm.description } : m);
+        localStorage.setItem('mindweave_mock_meetings', JSON.stringify(updated));
+        setMeeting(prev => prev ? { ...prev, title: editMeetingForm.title, topic: editMeetingForm.topic, description: editMeetingForm.description } : prev);
+        setIsEditingMeeting(false);
+        return;
+      }
+
+      const res = await apiFetch(`/api/meetings/${meetingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: session.id, ...editMeetingForm }),
+      });
+      if (!res.ok) throw new Error('수정 실패');
+      
+      setMeeting(prev => prev ? { ...prev, title: editMeetingForm.title, topic: editMeetingForm.topic, description: editMeetingForm.description } : prev);
+      setIsEditingMeeting(false);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSavingMeeting(false);
+    }
+  };
+
+  const handleDeleteMeeting = async () => {
+    if (!session || !meeting) return;
+    if (!confirm('이 모임을 정말 삭제하시겠습니까? (복구 불가)')) return;
+    
+    try {
+      if (localStorage.getItem('mindweave_mock_meetings')) {
+        const all = JSON.parse(localStorage.getItem('mindweave_mock_meetings') || '[]');
+        localStorage.setItem('mindweave_mock_meetings', JSON.stringify(all.filter((m: any) => m.id !== meetingId)));
+      }
+      await apiFetch(`/api/meetings/${meetingId}?userId=${session.id}`, { method: 'DELETE' });
+      router.push('/');
+    } catch (err) {
+      alert('삭제 중 오류가 발생했습니다.');
+    }
+  };
+
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const isClosed = meeting?.status === 'closed';
-  const isCreator = session?.id === meeting?.created_by;
+  const isCreator = currentUserRole === 'owner';
 
   const filteredNotes = activeFilter === 'all'
     ? notes
@@ -440,9 +499,9 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
       <div className="fixed top-[-10%] left-[-10%] w-[500px] h-[500px] bg-primary/10 blur-[120px] pointer-events-none rounded-full"></div>
       <div className="fixed bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-secondary/10 blur-[150px] pointer-events-none rounded-full"></div>
 
-      {showCloseConfirm && (
+      {showCloseConfirm && isCreator && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-surface rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-outline-variant/20 space-y-4">
+          <div className="bg-surface rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-outline-variant/20 space-y-4 animate-fade-in-up">
             <h3 className="font-bold text-on-surface">모임을 종료하시겠습니까?</h3>
             <p className="text-sm text-on-surface-variant">종료 후에는 새 기록을 추가할 수 없습니다. 결과 리포트를 확인할 수 있습니다.</p>
             <div className="flex gap-2 pt-2">
@@ -455,81 +514,129 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         </div>
       )}
 
+      {isEditingMeeting && isCreator && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-surface rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-outline-variant/20 space-y-5 animate-fade-in-up">
+            <h3 className="font-headline-md text-on-surface">모임 정보 수정</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1">모임 이름</label>
+                <input value={editMeetingForm.title} onChange={e => setEditMeetingForm({...editMeetingForm, title: e.target.value})} className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl px-4 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary text-on-surface text-sm" placeholder="모임 이름" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1">주제 (선택)</label>
+                <input value={editMeetingForm.topic} onChange={e => setEditMeetingForm({...editMeetingForm, topic: e.target.value})} className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl px-4 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary text-on-surface text-sm" placeholder="주제" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1">설명 (선택)</label>
+                <textarea value={editMeetingForm.description} onChange={e => setEditMeetingForm({...editMeetingForm, description: e.target.value})} className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl px-4 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary text-on-surface text-sm resize-none" placeholder="간단한 설명" rows={3} />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setIsEditingMeeting(false)} className="flex-1 py-2.5 rounded-xl bg-surface-variant text-sm font-semibold text-on-surface hover:bg-surface-variant/80 transition-colors">취소</button>
+              <button onClick={handleSaveMeeting} disabled={isSavingMeeting || !editMeetingForm.title.trim() || !editMeetingForm.topic.trim()} className="flex-1 py-2.5 rounded-xl primary-gradient-btn text-sm font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+                {isSavingMeeting ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="fixed top-0 w-full z-50 bg-surface/40 backdrop-blur-[40px] border-b border-outline-variant/10">
-        <div className="flex justify-between items-center px-gutter py-base max-w-container-max mx-auto h-20">
-          <div className="flex items-center gap-4">
-            <div className="p-2 glass-card rounded-lg flex items-center justify-center text-primary">
+      <header className="fixed top-0 w-full z-50 bg-surface/40 backdrop-blur-[40px] border-b border-outline-variant/10 pt-[env(safe-area-inset-top)]">
+        <div className="flex justify-between items-center px-4 md:px-gutter py-3 md:py-base max-w-container-max mx-auto min-h-[5rem]">
+          <div className="flex items-center gap-3 md:gap-4 flex-1 min-w-0">
+            <div className="hidden md:flex p-2 glass-card rounded-lg items-center justify-center text-primary shrink-0">
               <span className="material-symbols-outlined">terminal</span>
             </div>
-            <div>
-              <h1 className="font-display-lg text-[18px] md:text-[24px] tracking-tighter text-primary leading-none">
+            <div className="flex flex-col min-w-0">
+              <h1 className="font-display-lg text-[18px] md:text-[24px] tracking-tighter text-primary leading-none truncate">
                 {meeting.title}
               </h1>
-              <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 {!isClosed ? (
-                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold text-primary">
-                    <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>진행 중
+                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold text-primary shrink-0">
+                    <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
+                    <span className="hidden md:inline">진행 중</span>
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold text-error">종료됨</span>
+                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold text-error shrink-0">종료됨</span>
                 )}
-                <span className="text-[10px] uppercase tracking-widest font-medium text-on-surface-variant">
-                  {participants.length} 참여자
+                <span className="flex items-center text-[10px] uppercase tracking-widest font-medium text-on-surface-variant shrink-0">
+                  <span className="material-symbols-outlined text-[12px] mr-1 md:hidden">group</span>
+                  {participants.length} <span className="hidden md:inline ml-1">참여자</span>
+                  <span className="md:hidden ml-0.5">명</span>
                 </span>
                 {!isClosed && (
-                  <button onClick={handleCopyLink} className="text-[10px] font-mono tracking-widest font-bold text-primary bg-primary/10 px-2 py-0.5 rounded transition-all hover:bg-primary/20">
-                    코드: {meeting.invite_code}
+                  <button onClick={handleCopyLink} className="flex items-center text-[10px] font-mono tracking-widest font-bold text-primary bg-primary/10 px-2 py-0.5 rounded transition-all hover:bg-primary/20 shrink-0">
+                    <span className="material-symbols-outlined text-[12px] mr-1 md:hidden">share</span>
+                    <span className="hidden md:inline">코드: </span>{meeting.invite_code}
                   </button>
                 )}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center w-10 h-10 rounded-full hover:bg-surface-variant" title="대시보드">
-              <span className="material-symbols-outlined">dashboard</span>
+          <div className="flex items-center gap-1 md:gap-4 shrink-0 pl-2">
+            <Link href="/" className="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-full hover:bg-surface-variant" title="뒤로 가기">
+              <span className="material-symbols-outlined text-[20px] md:text-[24px]">arrow_back</span>
             </Link>
             {isClosed && (
-              <Link href={`/meetings/${meetingId}/report`} className="text-primary font-bold text-sm bg-primary/10 px-4 py-2 rounded-full hover:bg-primary/20 transition-colors">
-                리포트 보기
+              <Link href={`/meetings/${meetingId}/report`} className="text-primary font-bold text-xs md:text-sm bg-primary/10 px-3 py-1.5 md:px-4 md:py-2 rounded-full hover:bg-primary/20 transition-colors">
+                리포트
               </Link>
             )}
-            {isCreator && !isClosed && (
-              <button onClick={() => setShowCloseConfirm(true)} className="text-error hover:bg-error/10 px-4 py-2 rounded-full font-bold text-sm transition-colors">
-                모임 종료
+            {isCreator && isClosed && (
+              <button onClick={handleDeleteMeeting} className="text-error hover:bg-error/10 px-3 py-1.5 md:px-4 md:py-2 rounded-full font-bold text-xs md:text-sm transition-colors whitespace-nowrap">
+                <span className="hidden md:inline">모임 삭제</span>
+                <span className="inline md:hidden">삭제</span>
               </button>
             )}
-            <button onClick={() => fetchData(true)} disabled={isRefreshing} className="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center" title="동기화">
-              <span className={`material-symbols-outlined ${isRefreshing ? 'animate-spin' : ''}`}>sync</span>
+            {isCreator && !isClosed && (
+              <button onClick={() => setShowCloseConfirm(true)} className="text-error hover:bg-error/10 px-3 py-1.5 md:px-4 md:py-2 rounded-full font-bold text-xs md:text-sm transition-colors whitespace-nowrap">
+                <span className="hidden md:inline">모임 종료</span>
+                <span className="inline md:hidden">종료</span>
+              </button>
+            )}
+            <button onClick={() => fetchData(true)} disabled={isRefreshing} className="hidden md:flex text-on-surface-variant hover:text-primary transition-colors items-center justify-center w-11 h-11 md:w-12 md:h-12" title="동기화">
+              <span className={`material-symbols-outlined text-[20px] md:text-[24px] ${isRefreshing ? 'animate-spin' : ''}`}>sync</span>
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-col md:flex-row max-w-container-max mx-auto w-full pt-28 pb-40 px-gutter gap-6 min-h-screen relative">
+      <div className="flex flex-col md:flex-row max-w-container-max mx-auto w-full pt-28 pb-[calc(10rem+env(safe-area-inset-bottom))] px-4 md:px-gutter gap-4 md:gap-6 min-h-screen relative">
         
         {/* Left Column: Notes */}
         <main className="flex-1 min-w-0">
           
           {/* Topic Banner */}
-          <div className="glass-card p-4 rounded-2xl mb-8 flex items-start gap-3 border-l-4 border-primary/50">
-            <span className="material-symbols-outlined text-primary">topic</span>
-            <div>
+          <div className="glass-card p-3 md:p-4 rounded-xl md:rounded-2xl mb-4 md:mb-8 flex items-start gap-2 md:gap-3 border-l-4 border-primary/50 relative group">
+            <span className="material-symbols-outlined text-primary text-[20px] md:text-[24px] shrink-0 mt-0.5 md:mt-0">topic</span>
+            <div className="flex-grow min-w-0 pr-6 md:pr-10">
               <p className="text-[10px] uppercase font-bold text-primary tracking-widest mb-1">주제</p>
-              <p className="text-sm text-on-surface leading-relaxed">{meeting.topic}</p>
-              {meeting.description && <p className="text-xs text-on-surface-variant mt-2">{meeting.description}</p>}
+              <p className="text-sm text-on-surface leading-snug md:leading-relaxed font-medium md:font-normal break-words">{meeting.topic}</p>
+              {meeting.description && <p className="text-xs text-on-surface-variant mt-1.5 md:mt-2 line-clamp-2 md:line-clamp-none break-words">{meeting.description}</p>}
             </div>
+            {isCreator && !isClosed && (
+              <button 
+                onClick={handleOpenEditMeeting} 
+                className="absolute top-3 right-3 md:top-4 md:right-4 opacity-50 hover:opacity-100 hover:bg-primary/10 text-primary p-2 rounded-full min-w-[44px] min-h-[44px] transition-all flex items-center justify-center"
+                title="정보 수정"
+              >
+                <span className="material-symbols-outlined text-[18px]">edit</span>
+              </button>
+            )}
           </div>
 
           {/* Type Filter */}
-          <div className="flex flex-wrap gap-2 mb-8">
-            <button onClick={() => setActiveFilter('all')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${activeFilter === 'all' ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
+          <div className="flex overflow-x-auto gap-2 mb-4 md:mb-8 pb-2 custom-scrollbar -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
+            <button onClick={() => setActiveFilter('all')} className={`shrink-0 px-3 md:px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${activeFilter === 'all' ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
               전체 {notes.length > 0 && <span className="opacity-70 ml-1">{notes.length}</span>}
             </button>
             {NOTE_TYPES.map(t => (
-              <button key={t.value} onClick={() => setActiveFilter(t.value)} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5 ${activeFilter === t.value ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
-                <span>{t.emoji}</span> {t.label}
+              <button key={t.value} onClick={() => setActiveFilter(t.value)} className={`shrink-0 px-3 md:px-4 py-1.5 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5 ${activeFilter === t.value ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
+                <span>{t.emoji}</span> <span className="md:inline">{t.label}</span>
                 {typeCounts[t.value] > 0 && <span className="opacity-70 ml-1">{typeCounts[t.value]}</span>}
               </button>
             ))}
@@ -552,18 +659,18 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
                 const isEditing = editingNoteId === note.id;
 
                 return (
-                  <div key={note.id} className={`flex gap-4 max-w-3xl ${isOwn ? 'self-end flex-row-reverse' : 'self-start'}`}>
-                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-surface-variant border border-outline-variant/20 flex items-center justify-center font-bold text-on-surface uppercase shadow-md">
+                  <div key={note.id} className={`flex gap-3 md:gap-4 max-w-3xl ${isOwn ? 'self-end flex-row-reverse' : 'self-start'}`}>
+                    <div className="flex-shrink-0 w-11 h-11 md:w-12 md:h-12 rounded-full bg-surface-variant border border-outline-variant/20 flex items-center justify-center font-bold text-on-surface uppercase shadow-md text-xs md:text-base">
                       {note.author_name.slice(0,1)}
                     </div>
-                    <div className={`flex flex-col gap-1.5 ${isOwn ? 'items-end' : 'items-start'} max-w-full`}>
-                      <div className={`flex items-center gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
-                        <span className="font-bold text-on-surface text-sm">{note.author_name}</span>
-                        <span className="text-[10px] text-primary font-bold uppercase px-2 py-0.5 rounded border border-primary/20 bg-primary/10 tracking-widest">{meta.label}</span>
-                        <span className="text-[10px] text-on-surface-variant font-mono">{new Date(note.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className={`flex flex-col gap-1 md:gap-1.5 ${isOwn ? 'items-end' : 'items-start'} max-w-full`}>
+                      <div className={`flex items-center gap-1.5 md:gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
+                        <span className="font-bold text-on-surface text-xs md:text-sm">{note.author_name}</span>
+                        <span className="text-[9px] md:text-[10px] text-primary font-bold uppercase px-1.5 md:px-2 py-0.5 rounded border border-primary/20 bg-primary/10 tracking-widest">{meta.label}</span>
+                        <span className="text-[9px] md:text-[10px] text-on-surface-variant font-mono">{new Date(note.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                       
-                      <div className={`glass-card p-4 shadow-lg w-full ${isOwn ? 'rounded-tl-2xl rounded-bl-2xl rounded-br-2xl bg-primary/5 border-primary/20' : 'rounded-tr-2xl rounded-br-2xl rounded-bl-2xl'}`}>
+                      <div className={`glass-card p-3 md:p-4 shadow-lg w-full ${isOwn ? 'rounded-tl-xl rounded-bl-xl rounded-br-xl md:rounded-tl-2xl md:rounded-bl-2xl md:rounded-br-2xl bg-primary/5 border-primary/20' : 'rounded-tr-xl rounded-br-xl rounded-bl-xl md:rounded-tr-2xl md:rounded-br-2xl md:rounded-bl-2xl'}`}>
                         {isEditing ? (
                           <div className="space-y-2">
                             <textarea
@@ -583,22 +690,22 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
                             </div>
                           </div>
                         ) : (
-                          <p className="text-on-surface leading-relaxed whitespace-pre-wrap text-sm md:text-[15px] break-words">{note.content}</p>
+                          <p className="text-on-surface leading-normal md:leading-relaxed whitespace-pre-wrap text-[13px] md:text-[15px] break-words">{note.content}</p>
                         )}
                       </div>
 
-                      <div className={`flex gap-3 mt-1 px-1 ${isOwn ? 'flex-row-reverse' : ''}`}>
+                      <div className={`flex gap-2 md:gap-3 mt-1 px-1 ${isOwn ? 'flex-row-reverse' : ''}`}>
                         <button onClick={() => handleToggleReaction(note.id)} disabled={isClosed && !isOwn} className={`text-xs font-bold flex items-center gap-1.5 transition-colors ${hasReacted ? 'text-primary bg-primary/10 px-2 py-1 rounded-full' : 'text-on-surface-variant hover:text-primary px-2 py-1 rounded-full hover:bg-surface-variant'}`}>
-                          <span className="material-symbols-outlined text-[16px]" style={{fontVariationSettings: hasReacted ? "'FILL' 1" : "'FILL' 0"}}>thumb_up</span>
+                          <span className="material-symbols-outlined text-[14px] md:text-[16px]" style={{fontVariationSettings: hasReacted ? "'FILL' 1" : "'FILL' 0"}}>thumb_up</span>
                           {rCount > 0 && rCount}
                         </button>
-                        {isOwn && !isClosed && !isEditing && (
+                        {(isOwn || isCreator) && !isClosed && !isEditing && (
                           <>
                             <button onClick={() => handleStartEdit(note)} className="text-xs text-on-surface-variant opacity-70 hover:opacity-100 flex items-center gap-1 transition-opacity p-1">
-                              <span className="material-symbols-outlined text-[16px]">edit</span>
+                              <span className="material-symbols-outlined text-[14px] md:text-[16px]">edit</span>
                             </button>
                             <button onClick={() => handleDeleteNote(note.id)} className="text-xs text-error opacity-70 hover:opacity-100 flex items-center gap-1 transition-opacity p-1">
-                              <span className="material-symbols-outlined text-[16px]">delete</span>
+                              <span className="material-symbols-outlined text-[14px] md:text-[16px]">delete</span>
                             </button>
                           </>
                         )}
@@ -635,9 +742,9 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
 
       {/* Input Footer */}
       {!isClosed && (
-        <footer className="fixed bottom-0 w-full z-50 p-4 md:pb-8">
-          <form onSubmit={handleSendNote} className="max-w-4xl mx-auto w-full glass-card-elevated rounded-[24px] md:rounded-[32px] p-2 flex items-end gap-2 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] bg-surface/80 backdrop-blur-2xl border border-outline-variant/30">
-            <div className="flex-grow px-4 py-3 relative">
+        <footer className="fixed bottom-0 w-full z-50 p-2 pb-[calc(env(safe-area-inset-bottom)+8px)] md:p-4 md:pb-[calc(env(safe-area-inset-bottom)+32px)]">
+          <form onSubmit={handleSendNote} className="max-w-4xl mx-auto w-full glass-card-elevated rounded-[20px] md:rounded-[32px] p-1.5 md:p-2 flex items-end gap-1.5 md:gap-2 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] bg-surface/80 backdrop-blur-2xl border border-outline-variant/30">
+            <div className="flex-grow px-3 py-2 md:px-4 md:py-3 relative">
               <textarea
                 ref={textareaRef}
                 value={content}
@@ -650,7 +757,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
             </div>
             <div className="p-2 flex items-center gap-2">
               <div className="relative">
-                <button type="button" onClick={() => setTypeDropdownOpen(!typeDropdownOpen)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-primary border border-primary/20 bg-primary/5 shadow-sm">
+                <button type="button" onClick={() => setTypeDropdownOpen(!typeDropdownOpen)} className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-primary border border-primary/20 bg-primary/5 shadow-sm">
                   <span className="text-lg">{currentNoteTypeMeta.emoji}</span>
                 </button>
                 {typeDropdownOpen && (

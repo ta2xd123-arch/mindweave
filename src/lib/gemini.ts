@@ -18,7 +18,7 @@ export const gemini = apiKey && !isMockMode
 
 export const model = gemini
   ? gemini.getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-3.5-flash',
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.4,

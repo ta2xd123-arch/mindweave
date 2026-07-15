@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/api-client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -14,6 +15,7 @@ export default function NewMeeting() {
   const [topic, setTopic] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState('');
+  const [maxParticipants, setMaxParticipants] = useState<number>(20);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -40,6 +42,7 @@ export default function NewMeeting() {
         description: description.trim(),
         meetingDate: date ? new Date(date).toISOString() : new Date().toISOString(),
         userId: session.id,
+        maxParticipants,
         userName: session.name,
       };
 
@@ -61,6 +64,7 @@ export default function NewMeeting() {
           description: meetingData.description,
           meeting_date: meetingData.meetingDate,
           invite_code: inviteCode,
+          max_participants: maxParticipants,
           created_by: session.id,
           created_at: new Date().toISOString(),
         };
@@ -85,7 +89,7 @@ export default function NewMeeting() {
       }
 
       // Real Mode
-      const res = await fetch('/api/meetings', {
+      const res = await apiFetch('/api/meetings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(meetingData),

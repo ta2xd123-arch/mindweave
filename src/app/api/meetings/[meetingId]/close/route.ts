@@ -42,6 +42,17 @@ export async function PATCH(
 
     if (updateError) throw updateError;
 
+    // Invalidate all guest tokens for this meeting
+    if ((status || 'closed') === 'closed') {
+      const { error: revokeError } = await supabase
+        .from('guest_tokens')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('meeting_id', meetingId);
+      if (revokeError) {
+        console.error('Failed to revoke guest tokens:', revokeError);
+      }
+    }
+
     return NextResponse.json({ meeting: updated });
   } catch (error: any) {
     console.error('Error updating meeting status:', error);

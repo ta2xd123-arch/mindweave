@@ -1,8 +1,9 @@
 'use client';
+import { apiFetch } from '@/lib/api-client';
 
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { getLocalSession, saveSession, UserSession } from '@/lib/auth';
+import { getLocalSession, saveSession, saveGuestSession, UserSession } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { BookOpen, Users, Clock, LogIn, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
@@ -13,6 +14,9 @@ interface MeetingDetails {
   topic: string;
   description: string;
   meeting_date: string;
+  status?: string;
+  max_participants?: number;
+  current_participants?: number;
 }
 
 export default function JoinMeeting({ params }: { params: Promise<{ inviteCode: string }> }) {
@@ -64,7 +68,7 @@ export default function JoinMeeting({ params }: { params: Promise<{ inviteCode: 
         }
 
         // Real Mode
-        const res = await fetch(`/api/meetings/join?inviteCode=${inviteCode}`);
+        const res = await apiFetch(`/api/meetings/join?inviteCode=${inviteCode}`);
         const data = await res.json();
 
         if (!res.ok) {
@@ -91,10 +95,8 @@ export default function JoinMeeting({ params }: { params: Promise<{ inviteCode: 
     setErrorMsg('');
 
     try {
-      // Save/Update session (syncs with user DB table if Supabase is active)
-      const activeSession = await saveSession(nameInput.trim());
-
       if (!isSupabaseConfigured) {
+        const activeSession = await saveSession(nameInput.trim());
         // Mock Mode: update mock participants
         const mockPartsKey = `mindweave_mock_participants_${meeting?.id}`;
         const mockParticipants = JSON.parse(localStorage.getItem(mockPartsKey) || '[]');
@@ -129,19 +131,32 @@ export default function JoinMeeting({ params }: { params: Promise<{ inviteCode: 
       }
 
       // Real Mode
-      const res = await fetch('/api/meetings/join', {
+      const res = await apiFetch('/api/meetings/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inviteCode: inviteCode.toUpperCase().trim(),
-          userId: activeSession.id,
-          userName: activeSession.name,
+          userName: nameInput.trim(),
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || '모임 참여에 실패했습니다.');
+      }
+
+      // If they joined as a guest, we save the guest token
+      // If they joined as owner, data.guestToken will be null and we can just sync the name
+      if (data.guestToken) {
+        saveGuestSession({
+          id: data.participantId,
+          name: nameInput.trim(),
+          role: 'guest',
+          guestToken: data.guestToken,
+          meetingId: data.meetingId
+        });
+      } else {
+        await saveSession(nameInput.trim());
       }
 
       router.push(`/meetings/${data.meetingId}`);
@@ -219,31 +234,57 @@ export default function JoinMeeting({ params }: { params: Promise<{ inviteCode: 
         )}
 
         {/* Name input & Join Form */}
-        <form onSubmit={handleJoin} className="space-y-4">
-          <div>
-            <label htmlFor="display_name" className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
-              {session ? '참여 닉네임 확인 (수정 가능)' : '참여에 사용할 닉네임 입력'}
-            </label>
-            <input
-              id="display_name"
-              type="text"
-              required
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              placeholder="예: 지영, 철수"
-              className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-4 py-3 text-zinc-800 placeholder-zinc-400 focus:border-[#3E5F58] focus:bg-white focus:outline-none transition-all duration-200 text-sm"
-            />
-          </div>
+                      {meeting.status === 'closed' ? (
+                <div className="text-center p-4 bg-error/10 text-error rounded-xl font-bold border border-error/20">
+                  <span className="material-symbols-outlined block text-2xl mb-1">cancel</span>
+                  이미 종료된 모임입니다.
+                </div>
+              ) : meeting.max_participants && meeting.current_participants && meeting.current_participants >= meeting.max_participants && !session ? (
+                <div className="text-center p-4 bg-error/10 text-error rounded-xl font-bold border border-error/20">
+                  <span className="material-symbols-outlined block text-2xl mb-1">group_off</span>
+                  인원이 가득 찼습니다.
+                </div>
+              ) : (
+                <form onSubmit={handleJoin} className="space-y-4">
+                  <div>
+                    <label htmlFor="name" className="block text-sm font-semibold text-on-surface mb-2 pl-1">
+                      {session ? '참여자 이름 (수정 가능)' : '참여할 이름을 입력하세요'}
+                    </label>
+                    <div className="relative group">
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-on-surface-variant group-focus-within:text-primary transition-colors">
+                        <span className="material-symbols-outlined text-[20px]">person</span>
+                      </div>
+                      <input
+                        type="text"
+                        id="name"
+                        value={nameInput}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        className="w-full bg-surface-container border border-outline-variant/30 rounded-2xl pl-11 pr-4 py-3.5 text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all font-medium"
+                        placeholder="예: 홍길동"
+                        required
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                  </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#2C4D46] py-3.5 font-semibold text-white hover:bg-[#3D665D] transition-colors shadow-sm disabled:opacity-60 text-sm"
-          >
-            <LogIn className="h-4 w-4" />
-            {isSubmitting ? '입장하는 중...' : '모임방으로 입장'}
-          </button>
-        </form>
+                  <button
+                    type="submit"
+                    disabled={!nameInput.trim() || isSubmitting}
+                    className={`w-full primary-gradient-btn text-white font-bold py-3.5 md:py-4 px-6 rounded-2xl transition-all shadow-lg flex justify-center items-center gap-2 group ${
+                      (!nameInput.trim() || isSubmitting) ? 'opacity-50 cursor-not-allowed transform-none shadow-none' : 'hover:shadow-xl hover:-translate-y-0.5'
+                    }`}
+                  >
+                    {isSubmitting ? (
+                      <span className="material-symbols-outlined animate-spin">refresh</span>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-[20px] transition-transform group-hover:translate-x-1">login</span>
+                        <span>모임 입장하기</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
 
         <div className="text-center">
           <Link href="/" className="text-[11px] font-semibold text-[#2C4D46] hover:underline">
@@ -254,3 +295,4 @@ export default function JoinMeeting({ params }: { params: Promise<{ inviteCode: 
     </main>
   );
 }
+
