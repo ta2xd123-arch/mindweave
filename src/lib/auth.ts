@@ -1,5 +1,5 @@
-import { apiFetch } from '@/lib/api-client';
 import { supabase, isSupabaseConfigured } from './supabase';
+import type { ServerRole } from './auth-role';
 
 export interface UserSession {
   id: string;
@@ -12,6 +12,16 @@ export interface UserSession {
 
 const USER_SESSION_KEY = 'mindweave_user_session';
 
+async function getServerRole(accessToken: string): Promise<ServerRole> {
+  const response = await fetch('/api/auth/role', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) return 'guest';
+
+  const data = await response.json() as { role?: unknown };
+  return data.role === 'owner' ? 'owner' : 'guest';
+}
+
 // Get the current user session from local storage (Client-side only)
 export function getLocalSession(): UserSession | null {
   if (typeof window === 'undefined') return null;
@@ -19,7 +29,7 @@ export function getLocalSession(): UserSession | null {
   if (!sessionStr) return null;
   try {
     return JSON.parse(sessionStr) as UserSession;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -35,7 +45,7 @@ export function saveGuestSession(session: UserSession): UserSession {
 export async function saveSession(name: string, email?: string): Promise<UserSession> {
   if (typeof window === 'undefined') throw new Error('Client-side only');
   
-  let session = getLocalSession();
+  const session = getLocalSession();
   let userId = session?.id || '';
   let finalEmail = email || session?.email || '';
   let role: 'owner' | 'guest' = 'guest';
@@ -47,14 +57,7 @@ export async function saveSession(name: string, email?: string): Promise<UserSes
       userId = sbSession.user.id;
       finalEmail = sbSession.user.email || finalEmail;
       
-      // Check if user is in app_admins
-      const { data: adminData } = await supabase
-        .from('app_admins')
-        .select('role')
-        .eq('user_id', userId)
-        .maybeSingle();
-        
-      role = adminData ? 'owner' : 'guest';
+      role = await getServerRole(sbSession.access_token);
     } else if (!userId) {
       // Just fallback for non-supabase local testing
       userId = 'local-guest-' + Math.random().toString(36).substr(2, 9);
@@ -82,4 +85,3 @@ export function clearSession() {
     localStorage.removeItem(USER_SESSION_KEY);
   }
 }
-

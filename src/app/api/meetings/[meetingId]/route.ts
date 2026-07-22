@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, isSupabaseConfigured, getAuthUser } from '@/lib/supabase-server';
+import { isAuthorizedForMeeting } from '@/lib/meeting-access';
 
 export async function GET(
   request: NextRequest,
@@ -16,7 +17,9 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const userId = authUser.id;
-  const currentUserRole = authUser.role || 'guest';
+  if (!isAuthorizedForMeeting(authUser, meetingId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   try {
     const { data: meeting, error: meetingError } = await supabase
@@ -58,11 +61,12 @@ export async function GET(
       meeting, 
       participants, 
       notes: notes || [],
-      currentUserRole 
+      isMeetingCreator: meeting.created_by === userId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching meeting details:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -71,7 +75,9 @@ export async function DELETE(
   { params }: { params: Promise<{ meetingId: string }> }
 ) {
   const { meetingId } = await params;
-  if (!isSupabaseConfigured) return NextResponse.json({ success: true });
+  if (!isSupabaseConfigured) {
+    return NextResponse.json({ error: 'Server database configuration is incomplete' }, { status: 503 });
+  }
 
   const authUser = await getAuthUser(request);
   if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -90,9 +96,10 @@ export async function DELETE(
     if (deleteError) throw deleteError;
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting meeting:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -101,7 +108,9 @@ export async function PATCH(
   { params }: { params: Promise<{ meetingId: string }> }
 ) {
   const { meetingId } = await params;
-  if (!isSupabaseConfigured) return NextResponse.json({ success: true });
+  if (!isSupabaseConfigured) {
+    return NextResponse.json({ error: 'Server database configuration is incomplete' }, { status: 503 });
+  }
 
   const authUser = await getAuthUser(request);
   if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -126,8 +135,9 @@ export async function PATCH(
     if (updateError) throw updateError;
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating meeting:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

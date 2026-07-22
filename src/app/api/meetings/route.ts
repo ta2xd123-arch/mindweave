@@ -14,14 +14,12 @@ function generateInviteCode(): string {
 // GET: List meetings for a user
 export async function GET(request: NextRequest) {
   if (!isSupabaseConfigured) {
-    return NextResponse.json({ meetings: [], warning: 'Supabase is not configured' });
+    return NextResponse.json({ error: 'Server database configuration is incomplete' }, { status: 503 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get('userId');
-  if (!userId) {
-    return NextResponse.json({ error: 'userId is required' }, { status: 400 });
-  }
+  const authUser = await getAuthUser(request);
+  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = authUser.id;
 
   try {
     const { data: participantData, error: participantError } = await supabase
@@ -42,9 +40,10 @@ export async function GET(request: NextRequest) {
     if (meetingsError) throw meetingsError;
 
     return NextResponse.json({ meetings });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching meetings:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -56,13 +55,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, topic, description, meetingDate, userName, maxParticipants, userId } = body;
+    const { title, topic, description, meetingDate, userName, maxParticipants } = body;
 
     const authUser = await getAuthUser(request);
 
-    if (!userId) {
-      return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+    if (!authUser || authUser.isGuestSession) {
+      return NextResponse.json({ error: 'A signed-in user is required to create a meeting' }, { status: 401 });
     }
+    const userId = authUser.id;
 
     if (!title || !topic || !userName) {
       return NextResponse.json({ error: 'title, topic, and userName are required' }, { status: 400 });
@@ -124,8 +124,9 @@ export async function POST(request: NextRequest) {
     if (participantError) throw participantError;
 
     return NextResponse.json({ meeting });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating meeting:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, isSupabaseConfigured, getAuthUser } from '@/lib/supabase-server';
+import { isAuthorizedForMeeting } from '@/lib/meeting-access';
 
 // GET: Get report data for a meeting (all notes organized by type + participants)
 export async function GET(
@@ -12,6 +13,12 @@ export async function GET(
     return NextResponse.json({ error: 'Supabase is not configured' }, { status: 500 });
   }
 
+  const authUser = await getAuthUser(request);
+  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isAuthorizedForMeeting(authUser, meetingId)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   try {
     // Fetch meeting
     const { data: meeting, error: meetingError } = await supabase
@@ -22,6 +29,17 @@ export async function GET(
 
     if (meetingError) throw meetingError;
     if (!meeting) return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
+
+    const { data: participant, error: participantError } = await supabase
+      .from('meeting_participants')
+      .select('user_id')
+      .eq('meeting_id', meetingId)
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    if (participantError) throw participantError;
+    if (!participant && meeting.created_by !== authUser.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     // Fetch participants
     const { data: participants, error: partsError } = await supabase
@@ -43,7 +61,7 @@ export async function GET(
 
     // Fetch reactions for all notes
     const noteIds = (notes || []).map((n: { id: string }) => n.id);
-    let reactions: any[] = [];
+    let reactions: { note_id: string; user_id: string; reaction_type: string }[] = [];
     if (noteIds.length > 0) {
       const { data: reactData, error: reactError } = await supabase
         .from('reactions')
@@ -54,8 +72,7 @@ export async function GET(
       reactions = reactData || [];
     }
 
-    const authUser = await getAuthUser(request);
-    const currentUserRole = authUser?.role || 'guest';
+    const isMeetingCreator = meeting.created_by === authUser.id;
 
     let aiReport = null;
     const { data: reportData, error: reportError } = await supabase
@@ -67,7 +84,7 @@ export async function GET(
       .maybeSingle();
 
     if (!reportError && reportData) {
-      if (currentUserRole === 'owner' || reportData.status === 'published') {
+      if (isMeetingCreator || reportData.status === 'published') {
         // Map database snake_case fields to camelCase for the frontend
         aiReport = {
           id: reportData.id,
@@ -88,12 +105,13 @@ export async function GET(
       participants: participants || [],
       notes: notes || [],
       reactions,
-      currentUserRole,
+      isMeetingCreator,
       aiReport
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching report data:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -109,11 +127,21 @@ export async function PATCH(
   }
 
   const authUser = await getAuthUser(request);
-  if (!authUser || authUser.role !== 'owner') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+  if (!authUser) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
+    const { data: meeting, error: meetingError } = await supabase
+      .from('meetings')
+      .select('created_by')
+      .eq('id', meetingId)
+      .maybeSingle();
+    if (meetingError) throw meetingError;
+    if (!meeting || meeting.created_by !== authUser.id) {
+      return NextResponse.json({ error: 'Only the meeting creator can publish a report' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { status, title, conclusion, supportingIdeas, opposingIdeas, newInsight, unresolvedQuestions, actionItems } = body;
 
@@ -137,9 +165,9 @@ export async function PATCH(
     if (error) throw error;
     
     return NextResponse.json({ success: true, data });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating knowledge:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
-

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, isSupabaseConfigured, getAuthUser } from '@/lib/supabase-server';
+import { isAuthorizedForMeeting } from '@/lib/meeting-access';
 
 // POST: Create a new note
 export async function POST(request: NextRequest) {
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest) {
         { error: 'meetingId, authorName, and content are required' },
         { status: 400 }
       );
+    }
+    if (!isAuthorizedForMeeting(authUser, meetingId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Verify meeting is active
@@ -65,8 +69,9 @@ export async function POST(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ note });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating note:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

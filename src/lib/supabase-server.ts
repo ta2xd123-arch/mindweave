@@ -15,7 +15,7 @@ import crypto from 'crypto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export const isSupabaseConfigured: boolean = !!(supabaseUrl && supabaseKey);
 
@@ -37,7 +37,7 @@ export function getSupabase(): SupabaseClient {
   if (!_supabase) {
     throw new Error(
       '[MINDWEAVE] Supabase가 설정되지 않았습니다.\n' +
-      '.env.local에 NEXT_PUBLIC_SUPABASE_URL과 NEXT_PUBLIC_SUPABASE_ANON_KEY를 추가하세요.'
+      '배포 환경의 서버 전용 Supabase 설정을 확인하세요.'
     );
   }
   return _supabase;
@@ -67,7 +67,8 @@ export async function getAuthUser(request: Request) {
     return {
       id: guest.participant_id,
       role: 'guest',
-      meeting_id: guest.meeting_id
+      meeting_id: guest.meeting_id,
+      isGuestSession: true,
     };
   } else {
     // Owner or Participant via Supabase Auth
@@ -86,8 +87,8 @@ export async function getAuthUser(request: Request) {
     return {
       id: user.id,
       email: user.email,
-      role: isOwner ? 'owner' : 'guest'
+      role: isOwner ? 'owner' : 'guest',
+      isGuestSession: false,
     };
   }
 }
-

@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!isSupabaseConfigured) {
-    return NextResponse.json({ mockMode: true, inviteCode: inviteCode.toUpperCase() });
+    return NextResponse.json({ error: 'Server database configuration is incomplete' }, { status: 503 });
   }
 
   try {
@@ -33,9 +33,10 @@ export async function GET(request: NextRequest) {
       .eq('meeting_id', meeting.id);
 
     return NextResponse.json({ meeting: { ...meeting, current_participants: count } });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching meeting by invite code:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -71,7 +72,10 @@ export async function POST(request: NextRequest) {
 
     // 2. Check if user is already authenticated (Owner)
     const authUser = await getAuthUser(request);
-    let userId = authUser?.id;
+    // A guest token is scoped to one meeting. Joining another meeting creates a new guest session.
+    let userId = authUser?.isGuestSession && authUser.meeting_id !== meeting.id
+      ? undefined
+      : authUser?.id;
     let guestTokenRaw = null;
     let isExistingParticipant = false;
 
@@ -122,8 +126,16 @@ export async function POST(request: NextRequest) {
 
       if (tokenError) throw tokenError;
     } else {
-      // Update existing user's name if they join with a new name
-      await supabase.from('users').update({ name: userName }).eq('id', userId);
+      // Ensure an authenticated participant has a local profile before adding the membership.
+      const { error: userError } = await supabase
+        .from('users')
+        .upsert({
+          id: userId,
+          name: userName,
+          email: authUser?.email || `${userId.slice(0, 8)}@guest.mindweave.io`,
+          created_at: new Date().toISOString()
+        });
+      if (userError) throw userError;
     }
 
     // 4. Add user to meeting_participants
@@ -145,8 +157,9 @@ export async function POST(request: NextRequest) {
       participantId: userId,
       guestToken: guestTokenRaw ? `guest_${guestTokenRaw}` : null
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error joining meeting by invite code:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

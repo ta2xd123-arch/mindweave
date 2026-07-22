@@ -8,7 +8,7 @@ export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl!, supabaseAnonKey!)
-  : null as any;
+  : (null as unknown as ReturnType<typeof createClient>);
 
 // Helper to get Supabase client or throw a clear error
 export function getSupabase() {

@@ -1,9 +1,11 @@
-import { supabase } from './supabase';
+import { isSupabaseConfigured, supabase } from './supabase';
 import { getLocalSession } from './auth';
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
   const headers = new Headers(init?.headers);
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = isSupabaseConfigured
+    ? await supabase.auth.getSession()
+    : { data: { session: null } };
   
   if (session?.access_token) {
     headers.set('Authorization', `Bearer ${session.access_token}`);

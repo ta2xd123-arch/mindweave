@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+.vercel_env
+.vercel_env_prod
+
+# build, log and script files
+build2.txt
+lint_output.txt
+set_env.bat
+*.bat
+*.py
+

@@ -5,12 +5,6 @@ import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { getLocalSession, UserSession } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import {
-  ArrowLeft, Users, Clock, FileText,
-  ThumbsUp, Printer, Share2, Check,
-  Sparkles, Loader2, ChevronDown, ChevronUp,
-  Lightbulb, MessageCircle, GitBranch, Target, HelpCircle, BookOpen,
-} from 'lucide-react';
 import Link from 'next/link';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -66,23 +60,22 @@ function mockGetReactions(meetingId: string): Record<string, Reaction[]> {
 // ── AI Section Component ──────────────────────────────────────────────────────
 
 function AIAnalysisSection({
-  meetingId, notes, isCreator, initialAnalysis
+  meetingId, notes, initialAnalysis, canManage
 }: {
   meetingId: string;
   notes: Note[];
-  isCreator: boolean;
   initialAnalysis?: AIAnalysis | null;
+  canManage: boolean;
 }) {
-  const [analysis, setAnalysis] = useState<AIAnalysis | null>(initialAnalysis || null);
+  const [analysis, setAnalysis] = useState<AIAnalysis | null>(initialAnalysis ?? null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(true);
-  
-  // Update state when initial analysis changes
-  useEffect(() => {
-    if (initialAnalysis) setAnalysis(initialAnalysis);
-  }, [initialAnalysis]);
+  const supportingIdeas = Array.isArray(analysis?.supportingIdeas) ? analysis.supportingIdeas : [];
+  const opposingIdeas = Array.isArray(analysis?.opposingIdeas) ? analysis.opposingIdeas : [];
+  const actionItems = Array.isArray(analysis?.actionItems) ? analysis.actionItems : [];
+  const unresolvedQuestions = Array.isArray(analysis?.unresolvedQuestions) ? analysis.unresolvedQuestions : [];
 
   const handleAnalyze = async () => {
     if (notes.length === 0) {
@@ -92,7 +85,7 @@ function AIAnalysisSection({
     setIsAnalyzing(true);
     setError('');
     try {
-      const body: any = { meetingId };
+      const body: Record<string, unknown> = { meetingId };
       if (!isSupabaseConfigured) {
         body.notes = notes.map(n => ({ author_name: n.author_name, note_type: n.note_type, content: n.content }));
       }
@@ -103,8 +96,8 @@ function AIAnalysisSection({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'AI 분석 실패');
       setAnalysis({ ...data.analysis, status: 'draft' });
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'AI 분석 실패');
     } finally {
       setIsAnalyzing(false);
     }
@@ -122,8 +115,8 @@ function AIAnalysisSection({
       if (!res.ok) throw new Error(data.error || '공개 실패');
       setAnalysis({ ...analysis, status: 'published' });
       alert('성공적으로 공개되었습니다!');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '공개 실패');
     } finally {
       setIsPublishing(false);
     }
@@ -131,12 +124,12 @@ function AIAnalysisSection({
 
   return (
     <section className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-headline-md text-headline-md text-on-surface flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <h3 className="font-headline-md text-xl sm:text-2xl text-on-surface flex items-center gap-3 text-readable">
           <span className="material-symbols-outlined text-primary">auto_awesome</span>
           AI Meeting Insights
         </h3>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-[10px] bg-primary/10 text-primary px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-primary/20">
             Gemini 3.5 Flash
           </span>
@@ -146,13 +139,13 @@ function AIAnalysisSection({
         </div>
       </div>
       
-      {error && <div className="p-4 bg-error/10 text-error rounded-xl text-sm border border-error/20">⚠️ {error}</div>}
+      {error && <div className="p-4 bg-error/10 text-error rounded-xl text-sm border border-error/20 text-readable">⚠️ {error}</div>}
 
-      {!analysis && !isAnalyzing && (
-        <div className="glass-card rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4">
+      {!analysis && !isAnalyzing && canManage && (
+        <div className="glass-card rounded-2xl p-4 sm:p-6 md:p-8 flex flex-col items-center justify-center text-center space-y-4">
           <span className="material-symbols-outlined text-4xl text-on-surface-variant">psychology</span>
-          <p className="text-on-surface-variant font-body-lg">모임의 모든 기록을 종합하여 인사이트를 도출합니다.</p>
-          <button onClick={handleAnalyze} disabled={notes.length === 0} className="primary-gradient-btn px-6 py-3 rounded-full text-white font-bold flex items-center gap-2 hover:scale-[0.98] transition-all shadow-lg disabled:opacity-50">
+          <p className="text-on-surface-variant font-body-lg text-readable">모임의 모든 기록을 종합하여 인사이트를 도출합니다.</p>
+          <button onClick={handleAnalyze} disabled={notes.length === 0} className="primary-gradient-btn w-full sm:w-auto px-6 py-3 rounded-full text-white font-bold flex items-center justify-center gap-2 hover:scale-[0.98] transition-all shadow-lg disabled:opacity-50">
             <span className="material-symbols-outlined">analytics</span>
             AI 분석 시작
           </button>
@@ -160,25 +153,25 @@ function AIAnalysisSection({
       )}
 
       {isAnalyzing && (
-        <div className="glass-card rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4">
+        <div className="glass-card rounded-2xl p-4 sm:p-6 md:p-8 flex flex-col items-center justify-center text-center space-y-4">
           <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-          <p className="text-primary font-bold">인사이트 분석 중... (약 10~20초 소요)</p>
+          <p className="text-primary font-bold text-readable">인사이트 분석 중... (약 10~20초 소요)</p>
         </div>
       )}
 
       {analysis && expanded && (
         <div className="space-y-6">
           {/* Title & Conclusion */}
-          <div className="glass-card-elevated rounded-2xl p-6 relative overflow-hidden group">
+          <div className="glass-card-elevated rounded-2xl p-4 sm:p-6 relative overflow-hidden group">
             <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-primary to-secondary"></div>
             <span className="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary font-label-caps text-[10px] border border-primary/20 mb-3 tracking-widest uppercase">집단지성</span>
-            <h3 className="font-headline-sm text-on-surface mb-3">{analysis.title}</h3>
-            <p className="text-on-surface font-body-lg leading-relaxed text-[15px]">{analysis.conclusion}</p>
+            <h3 className="text-lg sm:text-xl font-bold text-on-surface mb-3 text-readable">{analysis.title}</h3>
+            <p className="text-on-surface font-body-lg text-readable">{analysis.conclusion}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Supporting Ideas */}
-            <div className="glass-card rounded-xl p-6 space-y-4 hover:bg-surface-variant/20 transition-all">
+            <div className="glass-card rounded-xl p-4 sm:p-6 space-y-4 hover:bg-surface-variant/20 transition-all">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
                   <span className="material-symbols-outlined text-emerald-400">handshake</span>
@@ -186,18 +179,18 @@ function AIAnalysisSection({
                 <h4 className="font-bold text-on-surface">공통 지지 의견</h4>
               </div>
               <ul className="space-y-2">
-                {analysis.supportingIdeas.map((g, i) => (
+                {supportingIdeas.map((g, i) => (
                   <li key={i} className="flex gap-2 text-sm text-on-surface-variant">
                     <span className="text-emerald-400 shrink-0">✓</span>
-                    <span className="leading-relaxed">{g}</span>
+                    <span className="text-readable">{g}</span>
                   </li>
                 ))}
               </ul>
             </div>
 
             {/* Opposing Ideas */}
-            {analysis.opposingIdeas.length > 0 && (
-              <div className="glass-card rounded-xl p-6 space-y-4 hover:bg-surface-variant/20 transition-all">
+            {opposingIdeas.length > 0 && (
+              <div className="glass-card rounded-xl p-4 sm:p-6 space-y-4 hover:bg-surface-variant/20 transition-all">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-8 h-8 rounded-lg bg-error/10 flex items-center justify-center">
                     <span className="material-symbols-outlined text-error">alt_route</span>
@@ -205,10 +198,10 @@ function AIAnalysisSection({
                   <h4 className="font-bold text-on-surface">반대/다른 시각</h4>
                 </div>
                 <ul className="space-y-2">
-                  {analysis.opposingIdeas.map((v, i) => (
+                  {opposingIdeas.map((v, i) => (
                     <li key={i} className="flex gap-2 text-sm text-on-surface-variant">
                       <span className="text-error shrink-0">⚡</span>
-                      <span className="leading-relaxed">{v}</span>
+                      <span className="text-readable">{v}</span>
                     </li>
                   ))}
                 </ul>
@@ -216,20 +209,20 @@ function AIAnalysisSection({
             )}
             
             {/* New Insight */}
-            <div className="glass-card rounded-xl p-6 space-y-4 hover:bg-surface-variant/20 transition-all md:col-span-2">
+            <div className="glass-card rounded-xl p-4 sm:p-6 space-y-4 hover:bg-surface-variant/20 transition-all md:col-span-2">
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center">
                   <span className="material-symbols-outlined text-secondary">lightbulb</span>
                 </div>
                 <h4 className="font-bold text-on-surface">새로운 통찰</h4>
               </div>
-              <p className="text-sm text-on-surface-variant leading-relaxed">
+              <p className="text-sm text-on-surface-variant text-readable">
                 {analysis.newInsight}
               </p>
             </div>
 
             {/* Unresolved Questions / Action Items */}
-            <div className="glass-card rounded-xl p-6 space-y-6 hover:bg-surface-variant/20 transition-all md:col-span-2">
+            <div className="glass-card rounded-xl p-4 sm:p-6 space-y-6 hover:bg-surface-variant/20 transition-all md:col-span-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <div className="flex items-center gap-3 mb-3">
@@ -239,10 +232,10 @@ function AIAnalysisSection({
                     <h4 className="font-bold text-on-surface">실천 항목</h4>
                   </div>
                   <ul className="space-y-2">
-                    {analysis.actionItems.map((a, i) => (
+                    {actionItems.map((a, i) => (
                       <li key={i} className="flex gap-2 text-sm text-on-surface-variant">
                         <span className="text-primary shrink-0">→</span>
-                        <span className="leading-relaxed">{a}</span>
+                        <span className="text-readable">{a}</span>
                       </li>
                     ))}
                   </ul>
@@ -255,10 +248,10 @@ function AIAnalysisSection({
                     <h4 className="font-bold text-on-surface">미해결 질문</h4>
                   </div>
                   <ul className="space-y-2">
-                    {analysis.unresolvedQuestions.map((q, i) => (
+                    {unresolvedQuestions.map((q, i) => (
                       <li key={i} className="flex gap-2 text-sm text-on-surface-variant">
                         <span className="text-purple-400 shrink-0 font-bold">Q.</span>
-                        <span className="leading-relaxed">{q}</span>
+                        <span className="text-readable">{q}</span>
                       </li>
                     ))}
                   </ul>
@@ -267,18 +260,18 @@ function AIAnalysisSection({
             </div>
           </div>
           
-          <div className="flex justify-end pt-2 gap-3">
+          {canManage && <div className="flex flex-col sm:flex-row sm:justify-end pt-2 gap-3">
             {analysis.status === 'draft' && (
-              <button onClick={handlePublish} disabled={isPublishing} className="text-xs font-semibold text-white bg-primary px-4 py-2 rounded-full hover:scale-105 transition-all shadow-md flex items-center gap-1">
+              <button onClick={handlePublish} disabled={isPublishing} className="text-sm font-semibold text-white bg-primary px-4 py-2 rounded-full hover:scale-105 transition-all shadow-md flex items-center justify-center gap-1">
                 <span className="material-symbols-outlined text-[14px]">public</span>
                 {isPublishing ? '공개 중...' : '참여자에게 공개하기'}
               </button>
             )}
-            <button onClick={handleAnalyze} disabled={isAnalyzing} className="text-xs font-semibold text-on-surface-variant hover:text-primary flex items-center gap-1 transition-colors">
+            <button onClick={handleAnalyze} disabled={isAnalyzing} className="text-sm font-semibold text-on-surface-variant hover:text-primary flex items-center justify-center gap-1 transition-colors">
               <span className="material-symbols-outlined text-[14px]">refresh</span>
               재분석
             </button>
-          </div>
+          </div>}
         </div>
       )}
     </section>
@@ -291,7 +284,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
   const router = useRouter();
   const { meetingId } = use(params);
 
-  const [session, setSession] = useState<UserSession | null>(null);
+  const [session] = useState<UserSession | null>(() => getLocalSession());
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -300,16 +293,13 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
   const [errorMsg, setErrorMsg] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const [currentUserRole, setCurrentUserRole] = useState<'owner' | 'guest'>('guest');
+  const [isMeetingCreator, setIsMeetingCreator] = useState(false);
   const [initialAnalysis, setInitialAnalysis] = useState<AIAnalysis | null>(null);
 
-  // ── Data load ─────────────────────────────────────────────────────────────
-
+  // Redirect if no session
   useEffect(() => {
-    const s = getLocalSession();
-    if (!s) { router.push('/'); return; }
-    setSession(s);
-  }, [router]);
+    if (!session) { router.push('/'); }
+  }, [session, router]);
 
   useEffect(() => {
     if (!session) return;
@@ -323,7 +313,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
           setParticipants(JSON.parse(localStorage.getItem(`mindweave_mock_participants_${meetingId}`) || '[]'));
           setNotes(JSON.parse(localStorage.getItem(`mindweave_mock_notes_${meetingId}`) || '[]'));
           setReactions(mockGetReactions(meetingId));
-          setCurrentUserRole(found.created_by === session.id ? 'owner' : 'guest');
+          setIsMeetingCreator(found.created_by === session.id);
           return;
         }
         const res = await apiFetch(`/api/meetings/${meetingId}/report`);
@@ -332,7 +322,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
         setMeeting(data.meeting);
         setParticipants(data.participants || []);
         setNotes(data.notes || []);
-                setCurrentUserRole(data.currentUserRole || 'guest');
+        setIsMeetingCreator(Boolean(data.isMeetingCreator));
         if (data.aiReport) {
           setInitialAnalysis({
             status: data.aiReport.status,
@@ -351,8 +341,8 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
           map[r.note_id].push(r);
         }
         setReactions(map);
-      } catch (err: any) {
-        setErrorMsg(err.message);
+      } catch (err: unknown) {
+        setErrorMsg(err instanceof Error ? err.message : '데이터 로드 실패');
       } finally {
         setIsLoading(false);
       }
@@ -399,10 +389,10 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
   if (errorMsg || !meeting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#FAF9F6] p-6">
-        <div className="max-w-md w-full text-center bg-white p-8 rounded-2xl space-y-4">
+        <div className="max-w-md w-full text-center bg-white p-4 sm:p-6 md:p-8 rounded-2xl space-y-4">
           <p className="text-4xl">😕</p>
           <h2 className="text-lg font-bold">리포트를 불러올 수 없습니다</h2>
-          <p className="text-zinc-400 text-sm">{errorMsg}</p>
+          <p className="text-zinc-400 text-sm text-readable">{errorMsg}</p>
           <button onClick={() => router.back()} className="w-full rounded-xl bg-zinc-900 py-3 text-sm font-semibold text-white">
             돌아가기
           </button>
@@ -424,8 +414,6 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
   const formattedDate = new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('ko-KR', {
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
   });
-  const isCreator = currentUserRole === 'owner';
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -435,8 +423,8 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
       <div className="fixed bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-secondary/10 blur-[150px] pointer-events-none rounded-full"></div>
 
       <header className="sticky top-0 w-full z-50 bg-surface/40 backdrop-blur-[40px] border-b border-outline-variant/10 print:hidden">
-        <div className="flex justify-between items-center px-4 md:px-gutter py-3 md:py-base max-w-container-max mx-auto h-16 md:h-20">
-          <div className="flex items-center gap-2 md:gap-4">
+        <div className="flex justify-between items-center px-3 sm:px-4 md:px-gutter py-3 md:py-base max-w-container-max mx-auto min-h-16 md:min-h-20 gap-2">
+          <div className="flex items-center gap-2 md:gap-4 min-w-0">
             <Link href={`/meetings/${meetingId}`} title="뒤로 가기" className="material-symbols-outlined text-primary hover:bg-surface-variant p-2 rounded-full transition-colors active:scale-95 duration-200">
               arrow_back
             </Link>
@@ -444,18 +432,18 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
               모임 리포트
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                         {initialAnalysis?.status === 'published' && (
-              <button onClick={handleDownloadMarkdown} className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-variant hover:bg-surface-variant/80 transition-colors text-sm font-bold">
+              <button onClick={handleDownloadMarkdown} className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-surface-variant hover:bg-surface-variant/80 transition-colors text-sm font-bold">
                 <span className="material-symbols-outlined text-[18px]">download</span>
                 <span className="hidden sm:inline">MD 다운로드</span>
               </button>
             )}
-            <button onClick={handleShare} className="flex items-center gap-2 px-4 py-2 rounded-full glass-card hover:bg-surface-variant transition-colors text-sm font-semibold text-on-surface">
+            <button onClick={handleShare} className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-full glass-card hover:bg-surface-variant transition-colors text-sm font-semibold text-on-surface">
               <span className="material-symbols-outlined text-[18px]">{copied ? 'check' : 'share'}</span>
               <span className="hidden sm:inline">{copied ? '복사됨!' : '공유하기'}</span>
             </button>
-            <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-sm font-bold">
+            <button onClick={() => window.print()} className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-sm font-bold">
               <span className="material-symbols-outlined text-[18px]">print</span>
               <span className="hidden sm:inline">인쇄</span>
             </button>
@@ -463,10 +451,10 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
         </div>
       </header>
 
-      <main className="max-w-container-max mx-auto px-4 md:px-gutter py-6 md:py-8 space-y-8 md:space-y-12 print:py-0 print:px-0 relative min-h-screen">
+      <main className="max-w-container-max mx-auto px-3 sm:px-4 md:px-gutter py-6 md:py-8 space-y-8 md:space-y-12 print:py-0 print:px-0 relative min-h-screen w-full">
 
         {/* Cover */}
-        <section className="glass-card-elevated rounded-2xl md:rounded-3xl p-6 md:p-8 relative overflow-hidden group border border-outline-variant/20 shadow-2xl">
+        <section className="glass-card-elevated rounded-2xl md:rounded-3xl p-4 sm:p-6 md:p-8 relative overflow-hidden group border border-outline-variant/20 shadow-2xl">
           <div className="absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b from-primary to-secondary"></div>
           <div className="flex flex-col md:flex-row gap-8">
             <div className="flex-1 space-y-4">
@@ -474,13 +462,13 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
                 <span className="material-symbols-outlined text-primary opacity-80 text-sm">topic</span>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-primary">MINDWEAVE Report</span>
               </div>
-              <h1 className="text-2xl md:text-4xl font-bold leading-tight text-on-surface tracking-tight">{meeting.title}</h1>
-              <p className="text-on-surface-variant font-body-lg leading-relaxed max-w-2xl">{meeting.topic}</p>
-              {meeting.description && <p className="text-sm text-on-surface-variant/70 leading-relaxed mt-2 max-w-2xl">{meeting.description}</p>}
+              <h1 className="text-2xl md:text-4xl font-bold leading-tight text-on-surface tracking-tight text-readable">{meeting.title}</h1>
+              <p className="text-on-surface-variant font-body-lg max-w-2xl text-readable">{meeting.topic}</p>
+              {meeting.description && <p className="text-sm text-on-surface-variant/70 mt-2 max-w-2xl text-readable">{meeting.description}</p>}
               
               <div className="flex flex-wrap gap-4 pt-4 text-xs font-semibold text-on-surface-variant">
                 <span className="flex items-center gap-1.5 bg-surface-variant px-3 py-1.5 rounded-full"><span className="material-symbols-outlined text-[14px]">event</span>{formattedDate}</span>
-                <span className="flex items-center gap-1.5 bg-surface-variant px-3 py-1.5 rounded-full font-mono"><span className="material-symbols-outlined text-[14px]">key</span>{meeting.invite_code}</span>
+                <span className="flex items-center gap-1.5 bg-surface-variant px-3 py-1.5 rounded-full font-mono font-mono-code"><span className="material-symbols-outlined text-[14px]">key</span>{meeting.invite_code}</span>
               </div>
             </div>
             
@@ -500,13 +488,13 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
         </section>
 
         {/* AI Analysis */}
-        {currentUserRole === 'owner' ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} isCreator={isCreator} initialAnalysis={initialAnalysis} />
+        {isMeetingCreator ? (
+          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage />
         ) : initialAnalysis ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} isCreator={isCreator} initialAnalysis={initialAnalysis} />
+          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage={false} />
         ) : (
-          <div className="glass-card rounded-2xl p-6 flex items-center justify-center text-center space-y-4">
-             <p className="text-sm text-on-surface-variant">진행자가 AI 리포트를 공개하면 이 위치에 나타납니다.</p>
+          <div className="glass-card rounded-2xl p-4 sm:p-6 flex items-center justify-center text-center space-y-4">
+             <p className="text-sm text-on-surface-variant text-readable">진행자가 AI 리포트를 공개하면 이 위치에 나타납니다.</p>
           </div>
         )}
 
@@ -514,7 +502,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
         <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Type Distribution */}
           {notes.length > 0 && (
-            <div className="glass-card rounded-2xl p-6 space-y-5">
+            <div className="glass-card rounded-2xl p-4 sm:p-6 space-y-5">
               <h3 className="font-headline-md text-base font-bold text-on-surface flex items-center gap-2 border-b border-outline-variant/10 pb-3">
                 <span className="material-symbols-outlined text-primary">pie_chart</span>
                 기록 유형 분포
@@ -522,7 +510,6 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {NOTE_TYPES.map(t => {
                   const count = notes.filter(n => n.note_type === t.value).length;
-                  const pct = notes.length > 0 ? Math.round((count / notes.length) * 100) : 0;
                   if (count === 0) return null;
                   return (
                     <div key={t.value} className="rounded-xl p-3 bg-surface-variant/30 border border-outline-variant/10 space-y-2 text-center relative overflow-hidden group">
@@ -539,13 +526,13 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
 
           {/* Participant Contributions */}
           {topAuthors.length > 0 && (
-            <div className="glass-card rounded-2xl p-6 space-y-5">
+            <div className="glass-card rounded-2xl p-4 sm:p-6 space-y-5">
               <h3 className="font-headline-md text-base font-bold text-on-surface flex items-center gap-2 border-b border-outline-variant/10 pb-3">
                 <span className="material-symbols-outlined text-secondary">bar_chart</span>
                 기여도
               </h3>
               <div className="space-y-4 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-                {topAuthors.map((a, i) => (
+                {topAuthors.map((a) => (
                   <div key={a.name} className="flex items-center gap-3 group">
                     <div className="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center font-bold text-xs text-on-surface uppercase border border-outline-variant/20 shadow-sm">
                       {a.name.slice(0, 1)}
@@ -591,17 +578,17 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
                     {group.notes.map(note => {
                       const nr = reactions[note.id] || [];
                       return (
-                        <div key={note.id} className="glass-card rounded-2xl p-5 hover:border-primary/30 transition-colors group">
+                        <div key={note.id} className="glass-card rounded-2xl p-4 sm:p-5 hover:border-primary/30 transition-colors group">
                           <div className="flex items-start justify-between gap-3 mb-3">
                             <div className="flex items-center gap-2">
                               <div className="w-6 h-6 rounded-full bg-surface-variant flex items-center justify-center font-bold text-[10px] text-on-surface uppercase shadow-sm">
                                 {note.author_name.slice(0, 1)}
                               </div>
-                              <span className="text-xs font-bold text-on-surface">{note.author_name}</span>
+                              <span className="text-xs font-bold text-on-surface truncate max-w-[12rem]">{note.author_name}</span>
                             </div>
                             <span className="text-[10px] text-on-surface-variant font-mono">{new Date(note.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
-                          <p className="text-sm text-on-surface leading-relaxed whitespace-pre-wrap">{note.content}</p>
+                          <p className="text-sm text-on-surface whitespace-pre-wrap text-readable">{note.content}</p>
                           {nr.length > 0 && (
                             <div className="flex items-center gap-1.5 mt-4 pt-3 border-t border-outline-variant/10">
                               <span className="material-symbols-outlined text-[14px] text-primary" style={{fontVariationSettings: "'FILL' 1"}}>thumb_up</span>
@@ -623,7 +610,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
         </section>
 
         <footer className="text-center pb-8 pt-8 border-t border-outline-variant/10 print:pb-0 mt-12">
-          <p className="text-[10px] text-on-surface-variant tracking-widest uppercase font-bold">MINDWEAVE AI Collaboration Platform • {formattedDate}</p>
+          <p className="text-[10px] text-on-surface-variant tracking-widest uppercase font-bold text-readable">MINDWEAVE AI Collaboration Platform • {formattedDate}</p>
         </footer>
       </main>
     </>

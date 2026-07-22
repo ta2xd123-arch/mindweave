@@ -1,7 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isSupabaseConfigured, supabase, getAuthUser } from '@/lib/supabase-server';
-import { model, isGeminiConfigured, isMockMode } from '@/lib/gemini';
+import { model, geminiModelName, isGeminiConfigured, isMockMode } from '@/lib/gemini';
 import { getIP, isRateLimited } from '@/lib/rate-limit';
+import { parseAnalysisText, toClientAnalysis } from '@/lib/ai-analysis';
+import { isMeetingOwner } from '@/lib/meeting-access';
+
+const MAX_GEMINI_ATTEMPTS = 2;
+const MAX_FORMAT_ATTEMPTS = 2;
+
+function providerStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error && 'status' in error) {
+    const status = (error as { status?: unknown }).status;
+    return typeof status === 'number' ? status : undefined;
+  }
+  return undefined;
+}
+
+function isRetryableProviderError(error: unknown): boolean {
+  const status = providerStatus(error);
+  const message = error instanceof Error ? error.message : '';
+  return status === 503 || message.includes('503') || message.includes('Service Unavailable') || message.includes('overloaded');
+}
+
+async function generateAnalysis(prompt: string) {
+  if (!model) throw new Error('AI model is not initialized.');
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_GEMINI_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await model.generateContent(prompt);
+      return { result, attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_GEMINI_ATTEMPTS || !isRetryableProviderError(error)) break;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastError;
+}
 
 // POST: Analyze meeting notes with Gemini AI
 export async function POST(
@@ -20,8 +56,8 @@ export async function POST(
   const { meetingId } = await params;
 
   const authUser = await getAuthUser(req);
-  if (!authUser || authUser.role !== 'owner') {
-    return NextResponse.json({ error: 'AI 분석은 앱 소유자만 실행할 수 있습니다.' }, { status: 403 });
+  if (!authUser) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   if (!isMockMode && (!isGeminiConfigured || !model)) {
@@ -32,8 +68,40 @@ export async function POST(
   }
 
   try {
+    if (isSupabaseConfigured) {
+      const { data: meeting, error: meetingError } = await supabase
+        .from('meetings')
+        .select('created_by')
+        .eq('id', meetingId)
+        .maybeSingle();
+      if (meetingError) throw meetingError;
+      if (!meeting || !isMeetingOwner(authUser, meeting.created_by)) {
+        return NextResponse.json({ error: 'AI 분석은 모임장만 실행할 수 있습니다.' }, { status: 403 });
+      }
+
+      // Never make a second paid request while an unpublished draft already exists.
+      const { data: existingDraft, error: existingDraftError } = await supabase
+        .from('collective_knowledge')
+        .select('*')
+        .eq('meeting_id', meetingId)
+        .eq('status', 'draft')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingDraftError) throw existingDraftError;
+      if (existingDraft) {
+        return NextResponse.json(
+          {
+            error: '공개되지 않은 AI 분석 초안이 이미 있습니다. 초안을 공개하거나 정리한 뒤 다시 실행해 주세요.',
+            analysis: toClientAnalysis(existingDraft),
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // Fetch notes
-    let notes: any[] = [];
+    let notes: { author_name: string; note_type: string; content: string }[] = [];
 
     if (isSupabaseConfigured) {
       const { data, error } = await supabase
@@ -113,6 +181,7 @@ ${notesText}
 
     if (isMockMode) {
       await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 딜레이
+      console.info('[GEMINI_API_RESULT]', { meetingId, model: geminiModelName, status: 200, mock: true });
       return NextResponse.json({
         analysis: {
           title: "[Mock 모드] 안전한 개발 환경 구축 방안",
@@ -126,24 +195,42 @@ ${notesText}
       });
     }
 
-    if (!model) {
-      throw new Error('AI 모델이 초기화되지 않았습니다.');
-    }
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    let analysis = null;
+    let usage: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | undefined;
+    let providerAttempts = 0;
 
-    let analysis;
-    try {
-      analysis = JSON.parse(text);
-    } catch {
-      // Try to extract JSON if wrapped in markdown
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) {
-        analysis = JSON.parse(match[0]);
-      } else {
-        throw new Error('AI 응답을 파싱할 수 없습니다.');
-      }
+    for (let formatAttempt = 1; formatAttempt <= MAX_FORMAT_ATTEMPTS; formatAttempt += 1) {
+      const formatPrompt = formatAttempt === 1
+        ? prompt
+        : `${prompt}\n\n중요: 직전 응답은 유효한 JSON이 아니었습니다. JSON 객체만 다시 생성하세요.`;
+      const generated = await generateAnalysis(formatPrompt);
+      const response = generated.result.response;
+      providerAttempts += generated.attempt;
+      usage = response.usageMetadata;
+      analysis = parseAnalysisText(response.text());
+
+      if (analysis) break;
+      console.warn('[GEMINI_API_FORMAT_RETRY]', {
+        meetingId,
+        model: geminiModelName,
+        status: 200,
+        mock: false,
+        formatAttempt,
+      });
     }
+
+    if (!analysis) throw new Error('AI 응답을 파싱할 수 없습니다.');
+
+    console.info('[GEMINI_API_RESULT]', {
+      meetingId,
+      model: geminiModelName,
+      status: 200,
+      mock: false,
+      attempts: providerAttempts,
+      promptTokenCount: usage?.promptTokenCount,
+      candidatesTokenCount: usage?.candidatesTokenCount,
+      totalTokenCount: usage?.totalTokenCount,
+    });
 
     if (isSupabaseConfigured) {
       const { data: insertedKnowledge, error: insertError } = await supabase
@@ -157,7 +244,9 @@ ${notesText}
           new_insight: analysis.newInsight || '',
           unresolved_questions: analysis.unresolvedQuestions || [],
           action_items: analysis.actionItems || [],
-          status: 'draft'
+          status: 'draft',
+          // Requires the reviewed MINDWEAVE-only migration before deployment.
+          created_by: authUser.id,
         })
         .select()
         .single();
@@ -165,14 +254,22 @@ ${notesText}
       if (insertError) {
         console.error('Error inserting collective_knowledge:', insertError);
       } else {
-        return NextResponse.json({ analysis: insertedKnowledge });
+        return NextResponse.json({ analysis: toClientAnalysis(insertedKnowledge) });
       }
     }
 
-    return NextResponse.json({ analysis });
-  } catch (error: any) {
-    console.error('Gemini analysis error:', error);
-    const msg = error.message || '';
+    return NextResponse.json({ analysis: toClientAnalysis(analysis) });
+  } catch (error: unknown) {
+    const providerHttpStatus = providerStatus(error);
+    const errObj = error as { message?: string; status?: number };
+    const msg = errObj.message || '';
+    console.error('[GEMINI_API_ERROR]', {
+      meetingId,
+      model: geminiModelName,
+      status: providerHttpStatus,
+      mock: isMockMode,
+      message: msg.slice(0, 300),
+    });
 
     // Handle 429 Too Many Requests (Quota Exceeded)
     if (msg.includes('[429') || msg.includes('Too Many Requests') || msg.includes('Quota exceeded')) {
@@ -182,16 +279,23 @@ ${notesText}
       );
     }
 
-    // Surface API key errors clearly
-    if (msg.includes('API key') || msg.includes('INVALID_ARGUMENT') || msg.includes('[401') || msg.includes('[403') || error.status === 401 || error.status === 403) {
+    if (msg.includes('[404') || msg.includes('not found') || providerHttpStatus === 404) {
       return NextResponse.json(
-        { error: 'API 키가 유효하지 않습니다. .env.local의 MINDWEAVE_GEMINI_KEY를 확인해 주세요.' },
+        { error: 'Gemini 모델을 찾을 수 없습니다. 모델 설정을 확인해 주세요.' },
+        { status: 404 }
+      );
+    }
+
+    // Surface API key errors clearly
+    if (msg.includes('API key') || msg.includes('INVALID_ARGUMENT') || msg.includes('[401') || msg.includes('[403') || providerHttpStatus === 401 || providerHttpStatus === 403) {
+      return NextResponse.json(
+        { error: 'AI 제공자 인증에 실패했습니다. 서버 환경 설정을 확인해 주세요.' },
         { status: 401 }
       );
     }
 
     // Handle 503 Service Unavailable (Overloaded)
-    if (msg.includes('503') || msg.includes('Service Unavailable') || msg.includes('overloaded')) {
+    if (isRetryableProviderError(error)) {
       return NextResponse.json(
         { error: '현재 AI 서버에 사용자가 몰려 지연되고 있습니다. 잠시 후 다시 시도해 주세요.' },
         { status: 503 }

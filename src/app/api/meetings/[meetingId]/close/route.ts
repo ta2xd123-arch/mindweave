@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase-server';
+import { supabase, isSupabaseConfigured, getAuthUser } from '@/lib/supabase-server';
+import { isMeetingOwner } from '@/lib/meeting-access';
 
 // PATCH: Close a meeting (creator only)
 export async function PATCH(
@@ -10,14 +11,16 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { userId, status } = body;
-
-    if (!userId) {
-      return NextResponse.json({ error: 'userId is required' }, { status: 400 });
-    }
+    const { status = 'closed' } = body;
 
     if (!isSupabaseConfigured) {
       return NextResponse.json({ error: 'Supabase is not configured' }, { status: 500 });
+    }
+
+    const authUser = await getAuthUser(request);
+    if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (status !== 'active' && status !== 'closed') {
+      return NextResponse.json({ error: 'Invalid meeting status' }, { status: 400 });
     }
 
     // Only allow creator to change status
@@ -29,33 +32,26 @@ export async function PATCH(
 
     if (fetchError) throw fetchError;
     if (!meeting) return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
-    if (meeting.created_by !== userId) {
+    if (!isMeetingOwner(authUser, meeting.created_by)) {
       return NextResponse.json({ error: 'Only the meeting creator can change its status' }, { status: 403 });
     }
 
     const { data: updated, error: updateError } = await supabase
       .from('meetings')
-      .update({ status: status || 'closed' })
+      .update({ status })
       .eq('id', meetingId)
       .select()
       .single();
 
     if (updateError) throw updateError;
 
-    // Invalidate all guest tokens for this meeting
-    if ((status || 'closed') === 'closed') {
-      const { error: revokeError } = await supabase
-        .from('guest_tokens')
-        .update({ revoked_at: new Date().toISOString() })
-        .eq('meeting_id', meetingId);
-      if (revokeError) {
-        console.error('Failed to revoke guest tokens:', revokeError);
-      }
-    }
+    // Closing blocks writes in the note and reaction routes. Keep scoped guest
+    // sessions valid so participants can read a report once the host publishes it.
 
     return NextResponse.json({ meeting: updated });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating meeting status:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
