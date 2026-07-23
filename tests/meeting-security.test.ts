@@ -69,10 +69,10 @@ describe('server role lookup contract', () => {
   });
 
   it('returns no administrator authority for authenticated non-admin users', () => {
-    expect(roleLookupResponse(false)).toEqual({ isAdmin: false, role: 'guest' });
+    expect(roleLookupResponse(false)).toEqual({ isAdmin: false, role: 'guest', sourceDocumentsAvailable: false });
   });
 
   it('returns owner authority only when the server finds an admin row', () => {
-    expect(roleLookupResponse(true)).toEqual({ isAdmin: true, role: 'owner' });
+    expect(roleLookupResponse(true)).toEqual({ isAdmin: true, role: 'owner', sourceDocumentsAvailable: false });
   });
 });

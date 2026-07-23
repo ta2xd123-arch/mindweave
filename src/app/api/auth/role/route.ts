@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { roleLookupResponse, unauthorizedRoleLookupResult } from '@/lib/auth-role';
 import { getAuthUser, isSupabaseConfigured, supabase } from '@/lib/supabase-server';
+import { sourceAnalysisConfig } from '@/lib/source-analysis-config';
 
 // GET: Resolve the current Supabase-authenticated user's application role.
 // The user ID is derived from the verified bearer token, never from client input.
@@ -23,7 +24,10 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (error) throw error;
-    return NextResponse.json(roleLookupResponse(Boolean(admin)));
+    const isAdmin = Boolean(admin);
+    const sourceDocumentsAvailable = sourceAnalysisConfig.documentsEnabled
+      && (!sourceAnalysisConfig.documentsAdminOnly || isAdmin);
+    return NextResponse.json(roleLookupResponse(isAdmin, sourceDocumentsAvailable));
   } catch (error) {
     console.error('Error resolving application role:', error);
     return NextResponse.json({ error: 'Unable to resolve application role' }, { status: 500 });

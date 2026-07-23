@@ -3,6 +3,7 @@ export type ServerRole = 'owner' | 'guest';
 export interface RoleLookupResponse {
   isAdmin: boolean;
   role: ServerRole;
+  sourceDocumentsAvailable: boolean;
 }
 
 export interface UnauthorizedRoleLookupResult {
@@ -10,10 +11,11 @@ export interface UnauthorizedRoleLookupResult {
   body: { error: 'Unauthorized' };
 }
 
-export function roleLookupResponse(isAdmin: boolean): RoleLookupResponse {
+export function roleLookupResponse(isAdmin: boolean, sourceDocumentsAvailable = false): RoleLookupResponse {
   return {
     isAdmin,
     role: isAdmin ? 'owner' : 'guest',
+    sourceDocumentsAvailable,
   };
 }
 

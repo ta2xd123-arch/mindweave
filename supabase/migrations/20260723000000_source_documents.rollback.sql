@@ -1,0 +1,11 @@
+BEGIN;
+DROP FUNCTION IF EXISTS public.begin_source_document_analysis(uuid,uuid,integer,integer,text,integer,integer);
+DROP FUNCTION IF EXISTS public.source_analysis_daily_usage_count(uuid,timestamptz);
+DROP FUNCTION IF EXISTS public.source_analysis_seoul_day_start(timestamptz);
+DROP TRIGGER IF EXISTS mindweave_knowledge_cards_set_updated_at ON public.knowledge_cards;
+DROP TRIGGER IF EXISTS mindweave_source_documents_set_updated_at ON public.source_documents;
+DROP TABLE IF EXISTS public.source_analysis_usage;
+DROP TABLE IF EXISTS public.source_analysis_chunks;
+DROP TABLE IF EXISTS public.knowledge_cards;
+DROP TABLE IF EXISTS public.source_documents;
+COMMIT;

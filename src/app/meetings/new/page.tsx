@@ -1,5 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/api-client';
+import { useUpdateActivity } from '@/components/app-update-manager';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -29,6 +30,11 @@ export default function NewMeeting() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [canCreateMeeting, setCanCreateMeeting] = useState(!isSupabaseConfigured);
+
+  useUpdateActivity(
+    'new-meeting-draft',
+    Boolean(title.trim() || topic.trim() || description.trim() || isSubmitting),
+  );
 
   useEffect(() => {
     if (!session) {

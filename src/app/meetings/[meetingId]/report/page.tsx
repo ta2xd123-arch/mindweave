@@ -1,5 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/api-client';
+import { useUpdateActivity } from '@/components/app-update-manager';
 
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
@@ -72,6 +73,7 @@ function AIAnalysisSection({
   const [isPublishing, setIsPublishing] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(true);
+  useUpdateActivity(`ai-analysis-${meetingId}`, isAnalyzing || isPublishing);
   const supportingIdeas = Array.isArray(analysis?.supportingIdeas) ? analysis.supportingIdeas : [];
   const opposingIdeas = Array.isArray(analysis?.opposingIdeas) ? analysis.opposingIdeas : [];
   const actionItems = Array.isArray(analysis?.actionItems) ? analysis.actionItems : [];

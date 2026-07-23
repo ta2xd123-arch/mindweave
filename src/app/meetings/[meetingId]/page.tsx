@@ -1,5 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/api-client';
+import { useUpdateActivity } from '@/components/app-update-manager';
 
 import { useState, useEffect, use, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -461,6 +462,15 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
 
   const currentNoteTypeMeta = getNoteTypeMeta(noteType);
 
+  useUpdateActivity(
+    `meeting-in-progress-${meetingId}`,
+    isLoading || Boolean(meeting && meeting.status !== 'closed'),
+  );
+  useUpdateActivity(
+    `meeting-draft-${meetingId}`,
+    Boolean(content.trim() || editingNoteId || isSending || isSavingMeeting || isClosing),
+  );
+
   // ── States ────────────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -542,16 +552,19 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
 
       {/* Header */}
       <header className="fixed top-0 w-full z-50 bg-surface/40 backdrop-blur-[40px] border-b border-outline-variant/10 pt-[env(safe-area-inset-top)]">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center px-3 sm:px-4 md:px-gutter py-3 md:py-base max-w-container-max mx-auto min-h-[5rem] gap-2">
+        <div className="flex items-center px-3 sm:px-4 md:px-gutter py-2.5 md:py-base max-w-container-max mx-auto min-h-[4.5rem] gap-2 md:gap-4">
+          <Link href="/" className="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-full hover:bg-surface-variant shrink-0" title="뒤로 가기" aria-label="뒤로 가기">
+            <span className="material-symbols-outlined text-[20px] md:text-[24px]">arrow_back</span>
+          </Link>
           <div className="flex items-center gap-3 md:gap-4 flex-1 min-w-0">
             <div className="hidden md:flex p-2 glass-card rounded-lg items-center justify-center text-primary shrink-0">
               <span className="material-symbols-outlined">terminal</span>
             </div>
             <div className="flex flex-col min-w-0">
-              <h1 className="font-display-lg text-[18px] md:text-[24px] text-primary leading-tight text-readable">
+              <h1 className="font-display-lg text-[17px] md:text-[24px] text-primary leading-tight truncate">
                 {meeting.title}
               </h1>
-              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <div className="flex items-center gap-2 mt-1 flex-nowrap overflow-hidden">
                 {!isClosed ? (
                   <span className="flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold text-primary shrink-0">
                     <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
@@ -574,10 +587,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1 md:gap-4 shrink-0 pl-0 sm:pl-2 self-end sm:self-auto">
-            <Link href="/" className="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-full hover:bg-surface-variant" title="뒤로 가기">
-              <span className="material-symbols-outlined text-[20px] md:text-[24px]">arrow_back</span>
-            </Link>
+          <div className="flex items-center gap-1 md:gap-4 shrink-0 pl-0 sm:pl-2">
             {isClosed && (
               <Link href={`/meetings/${meetingId}/report`} className="text-primary font-bold text-xs md:text-sm bg-primary/10 px-3 py-2 md:px-4 md:py-2 rounded-full hover:bg-primary/20 transition-colors whitespace-nowrap">
                 리포트
@@ -603,7 +613,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-col md:flex-row max-w-container-max mx-auto w-full pt-36 sm:pt-28 pb-[calc(11rem+env(safe-area-inset-bottom))] px-3 sm:px-4 md:px-gutter gap-4 md:gap-6 min-h-screen relative">
+      <div className="flex flex-col md:flex-row max-w-container-max mx-auto w-full pt-24 md:pt-28 pb-[calc(8.5rem+env(safe-area-inset-bottom))] md:pb-[calc(11rem+env(safe-area-inset-bottom))] px-3 sm:px-4 md:px-gutter gap-4 md:gap-6 min-h-screen relative">
         
         {/* Left Column: Notes */}
         <main className="flex-1 min-w-0">
@@ -628,12 +638,12 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
           </div>
 
           {/* Type Filter */}
-          <div className="flex overflow-x-auto gap-2 mb-4 md:mb-8 pb-2 custom-scrollbar -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
-            <button onClick={() => setActiveFilter('all')} className={`shrink-0 px-3 md:px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${activeFilter === 'all' ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
+          <div className="flex overflow-x-auto gap-2 mb-4 md:mb-8 pb-2 custom-scrollbar -mx-3 px-3 md:mx-0 md:px-0 md:flex-wrap snap-x" aria-label="기록 유형 필터">
+            <button onClick={() => setActiveFilter('all')} className={`shrink-0 snap-start whitespace-nowrap px-3 md:px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${activeFilter === 'all' ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
               전체 {notes.length > 0 && <span className="opacity-70 ml-1">{notes.length}</span>}
             </button>
             {NOTE_TYPES.map(t => (
-              <button key={t.value} onClick={() => setActiveFilter(t.value)} className={`shrink-0 px-3 md:px-4 py-1.5 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5 ${activeFilter === t.value ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
+              <button key={t.value} onClick={() => setActiveFilter(t.value)} className={`shrink-0 snap-start whitespace-nowrap px-3 md:px-4 py-1.5 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5 ${activeFilter === t.value ? 'bg-primary text-on-primary border border-primary' : 'glass-card text-on-surface-variant hover:text-on-surface'}`}>
                 <span>{t.emoji}</span> <span className="md:inline">{t.label}</span>
                 {typeCounts[t.value] > 0 && <span className="opacity-70 ml-1">{typeCounts[t.value]}</span>}
               </button>
@@ -738,6 +748,37 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
         </aside>
       </div>
 
+      {/* Mobile note-type picker */}
+      {typeDropdownOpen && !isClosed && (
+        <div className="fixed inset-0 z-[70] bg-black/55 backdrop-blur-sm md:hidden" onClick={() => setTypeDropdownOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="note-type-title"
+            className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] rounded-3xl border border-outline-variant/30 bg-surface-container-highest p-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p id="note-type-title" className="font-bold text-on-surface">기록 유형 선택</p>
+                <p className="mt-0.5 text-xs text-on-surface-variant">작성할 생각에 가장 잘 맞는 유형을 골라주세요.</p>
+              </div>
+              <button type="button" onClick={() => setTypeDropdownOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-variant" aria-label="닫기">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {NOTE_TYPES.map(t => (
+                <button key={t.value} type="button" onClick={() => { setNoteType(t.value); setTypeDropdownOpen(false); }} className={`min-w-0 rounded-xl px-3 py-3 text-left text-sm flex gap-2 items-center transition-colors ${noteType === t.value ? 'text-primary bg-primary/15 ring-1 ring-primary/40' : 'text-on-surface bg-surface/60 hover:bg-surface-variant'}`}>
+                  <span className="text-lg shrink-0">{t.emoji}</span>
+                  <span className="font-bold truncate">{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Input Footer */}
       {!isClosed && (
         <footer className="fixed bottom-0 w-full z-50 p-2 pb-[calc(env(safe-area-inset-bottom)+8px)] md:p-4 md:pb-[calc(env(safe-area-inset-bottom)+32px)]">
@@ -749,19 +790,19 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
                 onChange={e => setContent(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSendNote(e as React.FormEvent); }}
                 className="w-full bg-transparent border-none focus:ring-0 text-on-surface placeholder:text-on-surface-variant/50 text-base resize-none max-h-32 outline-none"
-                placeholder="생각을 입력하세요... (Ctrl+Enter로 전송)"
+                placeholder="생각을 입력하세요…"
                 rows={1}
               />
             </div>
             <div className="p-1 sm:p-2 flex items-center gap-1.5 sm:gap-2 shrink-0">
               <div className="relative">
-                <button type="button" onClick={() => setTypeDropdownOpen(!typeDropdownOpen)} className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-primary border border-primary/20 bg-primary/5 shadow-sm">
+                <button type="button" onClick={() => setTypeDropdownOpen(!typeDropdownOpen)} className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-primary border border-primary/20 bg-primary/5 shadow-sm" aria-label={`기록 유형: ${currentNoteTypeMeta.label}`} aria-expanded={typeDropdownOpen}>
                   <span className="text-lg">{currentNoteTypeMeta.emoji}</span>
                 </button>
                 {typeDropdownOpen && (
-                  <div className="absolute bottom-full right-0 mb-4 bg-surface-container-highest border border-outline-variant/20 rounded-2xl shadow-2xl overflow-hidden z-[100] min-w-[160px] max-w-[calc(100vw-24px)] py-2">
+                  <div className="hidden md:block absolute bottom-full right-0 mb-4 bg-surface-container-highest border border-outline-variant/20 rounded-2xl shadow-2xl overflow-hidden z-[100] w-56 py-2">
                     {NOTE_TYPES.map(t => (
-                      <button key={t.value} type="button" onClick={() => { setNoteType(t.value); setTypeDropdownOpen(false); }} className={`w-full text-left px-4 py-3 hover:bg-surface-variant text-sm flex gap-3 items-center transition-colors ${noteType === t.value ? 'text-primary bg-primary/10' : 'text-on-surface'}`}>
+                      <button key={t.value} type="button" onClick={() => { setNoteType(t.value); setTypeDropdownOpen(false); }} className={`w-full whitespace-nowrap text-left px-4 py-3 hover:bg-surface-variant text-sm flex gap-3 items-center transition-colors ${noteType === t.value ? 'text-primary bg-primary/10' : 'text-on-surface'}`}>
                         <span className="text-lg">{t.emoji}</span> <span className="font-bold">{t.label}</span>
                       </button>
                     ))}

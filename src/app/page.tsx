@@ -1,5 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/api-client';
+import { AppVersionBadge } from '@/components/app-update-manager';
 import Image from 'next/image';
 
 import { useState, useEffect } from 'react';
@@ -300,10 +301,7 @@ export default function Home() {
 
         <main>
           <section className="relative pt-28 sm:pt-36 md:pt-48 pb-section-padding-mobile md:pb-section-padding-desktop mobile-page-x max-w-container-max mx-auto text-center overflow-hidden">
-            <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full glass-card mb-8">
-              <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
-              <span className="font-label-caps text-on-surface-variant text-[11px]">V2.0 업데이트 완료</span>
-            </div>
+            <AppVersionBadge />
             <h1 className="text-[30px] min-[390px]:text-[38px] md:text-[64px] font-bold text-on-surface mb-6 max-w-4xl mx-auto leading-tight">
               <span className="block whitespace-nowrap">아이디어를 연결하는</span>
               <span className="block mt-3 text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">AI 협업 플랫폼</span>
@@ -615,6 +613,18 @@ export default function Home() {
         </form>
 
         {errorMsg && <p className="text-error text-sm mb-4 text-readable">{errorMsg}</p>}
+
+        {canCreateMeeting && session?.sourceDocumentsAvailable && (
+          <div className="mb-6 flex justify-end">
+            <button
+              onClick={() => router.push('/sources/import')}
+              className="flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-5 py-2.5 text-sm font-bold text-primary hover:bg-primary/20 transition-colors"
+            >
+              <span className="material-symbols-outlined text-xl">upload_file</span>
+              외부 자료 가져오기
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-6">
           {meetings.length === 0 ? (

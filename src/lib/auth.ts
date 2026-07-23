@@ -8,18 +8,22 @@ export interface UserSession {
   role: 'owner' | 'guest';
   guestToken?: string;
   meetingId?: string;
+  sourceDocumentsAvailable?: boolean;
 }
 
 const USER_SESSION_KEY = 'mindweave_user_session';
 
-async function getServerRole(accessToken: string): Promise<ServerRole> {
+async function getServerRole(accessToken: string): Promise<{ role: ServerRole; sourceDocumentsAvailable: boolean }> {
   const response = await fetch('/api/auth/role', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) return 'guest';
+  if (!response.ok) return { role: 'guest', sourceDocumentsAvailable: false };
 
-  const data = await response.json() as { role?: unknown };
-  return data.role === 'owner' ? 'owner' : 'guest';
+  const data = await response.json() as { role?: unknown; sourceDocumentsAvailable?: unknown };
+  return {
+    role: data.role === 'owner' ? 'owner' : 'guest',
+    sourceDocumentsAvailable: data.sourceDocumentsAvailable === true,
+  };
 }
 
 // Get the current user session from local storage (Client-side only)
@@ -49,6 +53,7 @@ export async function saveSession(name: string, email?: string): Promise<UserSes
   let userId = session?.id || '';
   let finalEmail = email || session?.email || '';
   let role: 'owner' | 'guest' = 'guest';
+  let sourceDocumentsAvailable = false;
   
   // Sync to database if Supabase is configured
   if (isSupabaseConfigured) {
@@ -57,7 +62,9 @@ export async function saveSession(name: string, email?: string): Promise<UserSes
       userId = sbSession.user.id;
       finalEmail = sbSession.user.email || finalEmail;
       
-      role = await getServerRole(sbSession.access_token);
+      const serverRole = await getServerRole(sbSession.access_token);
+      role = serverRole.role;
+      sourceDocumentsAvailable = serverRole.sourceDocumentsAvailable;
     } else if (!userId) {
       // Just fallback for non-supabase local testing
       userId = 'local-guest-' + Math.random().toString(36).substr(2, 9);
@@ -73,6 +80,7 @@ export async function saveSession(name: string, email?: string): Promise<UserSes
     role: role,
     guestToken: session?.guestToken,
     meetingId: session?.meetingId,
+    sourceDocumentsAvailable,
   };
 
   localStorage.setItem(USER_SESSION_KEY, JSON.stringify(newSession));

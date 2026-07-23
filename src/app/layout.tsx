@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
+import { AppUpdateManager } from "@/components/app-update-manager";
 import "./globals.css";
 
 const inter = Inter({
@@ -63,32 +64,7 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       </head>
       <body className="min-h-full flex flex-col bg-background text-on-surface">
-        {children}
-
-        {/* PWA Service Worker Registration */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                if ('${process.env.NODE_ENV}' === 'production') {
-                  window.addEventListener('load', function() {
-                    navigator.serviceWorker.register('/sw.js').catch(function(err) {
-                      console.log('SW registration failed:', err);
-                    });
-                  });
-                } else {
-                  // 개발 환경에서는 새로고침 시 캐시 문제가 발생하지 않도록 서비스 워커 해제
-                  navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                    for(let registration of registrations) {
-                      registration.unregister();
-                    }
-                  });
-                  // 현재 페이지 캐시를 비우기 위해 하드 리로드가 필요할 수 있음
-                }
-              }
-            `,
-          }}
-        />
+        <AppUpdateManager>{children}</AppUpdateManager>
       </body>
     </html>
   );

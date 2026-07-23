@@ -19,6 +19,7 @@
 
 # production
 /build
+/.backups/
 
 # misc
 .DS_Store
@@ -50,4 +51,3 @@ lint_output.txt
 set_env.bat
 *.bat
 *.py
-

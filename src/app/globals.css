@@ -70,7 +70,7 @@ input, textarea, select {
   line-height: 1.55;
 }
 
-input, textarea, p, h1, h2, h3, h4, h5, h6, span, li, a, button {
+input, textarea, p, h1, h2, h3, h4, h5, h6, li {
   -webkit-user-select: auto;
   user-select: auto;
   overflow-wrap: anywhere;
@@ -80,6 +80,8 @@ button, a {
   touch-action: manipulation; /* Prevent double-tap zoom delay */
   -webkit-user-select: none;
   user-select: none;
+  overflow-wrap: normal;
+  word-break: keep-all;
 }
 
 button, [role="button"] {
