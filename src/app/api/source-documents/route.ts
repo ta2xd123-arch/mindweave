@@ -3,7 +3,6 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, isSupabaseConfigured, supabase } from '@/lib/supabase-server';
 import { isPrivateAddress, paragraphLocations, sanitizeSourceText, type SourceDocumentType, type SourceInputType, validateSourceUrl } from '@/lib/source-documents';
-import { extractPdfBuffer } from '@/lib/pdf-extraction';
 import { canAnalyzeSourceLength, dailyAnalysisLimit, SOURCE_LIMIT_ERROR, sourceAnalysisConfig, sourceDocumentsAccessStatus } from '@/lib/source-analysis-config';
 
 export const runtime = 'nodejs';
@@ -14,6 +13,7 @@ async function extractPdf(file: File) {
   if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error('PDF 형식만 업로드할 수 있습니다.');
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (new TextDecoder().decode(bytes.slice(0, 5)) !== '%PDF-') throw new Error('올바른 PDF 파일이 아닙니다.');
+  const { extractPdfBuffer } = await import('@/lib/pdf-extraction');
   return extractPdfBuffer(bytes);
 }
 

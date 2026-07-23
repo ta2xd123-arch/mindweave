@@ -151,6 +151,12 @@ describe('source document extraction', () => {
     }
   });
 
+  it('does not load the PDF parser before the disabled feature gate runs', () => {
+    const route = readFileSync(resolve(process.cwd(), 'src/app/api/source-documents/route.ts'), 'utf8');
+    expect(route).not.toContain("import { extractPdfBuffer } from '@/lib/pdf-extraction'");
+    expect(route).toContain("await import('@/lib/pdf-extraction')");
+  });
+
   it('uses one Seoul-midnight boundary for usage display and atomic quota claims', () => {
     const migration = readFileSync(resolve(process.cwd(), 'supabase/migrations/20260723000000_source_documents.sql'), 'utf8');
     const route = readFileSync(resolve(process.cwd(), 'src/app/api/source-documents/route.ts'), 'utf8');
