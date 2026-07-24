@@ -62,12 +62,14 @@ function mockGetReactions(meetingId: string): Record<string, Reaction[]> {
 // ── AI Section Component ──────────────────────────────────────────────────────
 
 function AIAnalysisSection({
-  meetingId, notes, initialAnalysis, canManage
+  meetingId, notes, initialAnalysis, canManage, onDownloadMD, onAnalysisUpdated
 }: {
   meetingId: string;
   notes: Note[];
   initialAnalysis?: AIAnalysis | null;
   canManage: boolean;
+  onDownloadMD?: (analysis: AIAnalysis) => void;
+  onAnalysisUpdated?: (analysis: AIAnalysis) => void;
 }) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(initialAnalysis ?? null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -98,7 +100,9 @@ function AIAnalysisSection({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'AI 분석 실패');
-      setAnalysis({ ...data.analysis, status: 'published' });
+      const newAnalysis: AIAnalysis = { ...data.analysis, status: 'published' };
+      setAnalysis(newAnalysis);
+      onAnalysisUpdated?.(newAnalysis);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'AI 분석 실패');
     } finally {
@@ -263,18 +267,20 @@ function AIAnalysisSection({
             </div>
           </div>
           
-          {canManage && <div className="flex flex-col sm:flex-row sm:justify-end pt-2 gap-3">
-            {analysis.status === 'draft' && (
-              <button onClick={handlePublish} disabled={isPublishing} className="text-sm font-semibold text-white bg-primary px-4 py-2 rounded-full hover:scale-105 transition-all shadow-md flex items-center justify-center gap-1">
-                <span className="material-symbols-outlined text-[14px]">public</span>
-                {isPublishing ? '공개 중...' : '참여자에게 공개하기'}
+          <div className="flex flex-col sm:flex-row sm:justify-end pt-2 gap-3">
+            {analysis && (
+              <button onClick={() => onDownloadMD?.(analysis)} className="text-sm font-semibold text-primary bg-primary/10 px-4 py-2 rounded-full hover:bg-primary/20 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                <span className="material-symbols-outlined text-[16px]">download</span>
+                MD 파일 다운로드
               </button>
             )}
-            <button onClick={handleAnalyze} disabled={isAnalyzing} className="text-sm font-semibold text-on-surface-variant hover:text-primary flex items-center justify-center gap-1 transition-colors">
-              <span className="material-symbols-outlined text-[14px]">refresh</span>
-              재분석
-            </button>
-          </div>}
+            {canManage && (
+              <button onClick={handleAnalyze} disabled={isAnalyzing} className="text-sm font-semibold text-on-surface-variant hover:text-primary flex items-center justify-center gap-1 transition-colors px-3 py-2">
+                <span className="material-symbols-outlined text-[14px]">refresh</span>
+                재분석
+              </button>
+            )}
+          </div>
         </div>
       )}
     </section>
@@ -353,9 +359,10 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
     load();
   }, [session, meetingId]);
 
-    const handleDownloadMarkdown = () => {
-    if (!initialAnalysis || !meeting) return;
-    const md = `# ${meeting.title}\n\n**주제**: ${meeting.topic}\n**날짜**: ${new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('ko-KR')}\n\n## 집단지성\n### ${initialAnalysis.title}\n${initialAnalysis.conclusion}\n\n## 공통 지지 의견\n${initialAnalysis.supportingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 반대/다른 시각\n${initialAnalysis.opposingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 새로운 통찰\n${initialAnalysis.newInsight}\n\n## 미해결 질문\n${initialAnalysis.unresolvedQuestions.map(i => `- ${i}`).join('\n')}\n\n## 실천 항목\n${initialAnalysis.actionItems.map(i => `- ${i}`).join('\n')}\n`;
+    const handleDownloadMarkdown = (targetAnalysis?: AIAnalysis | null) => {
+    const analysisToUse = targetAnalysis || initialAnalysis;
+    if (!analysisToUse || !meeting) return;
+    const md = `# ${meeting.title}\n\n**주제**: ${meeting.topic}\n**날짜**: ${new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('ko-KR')}\n\n## 집단지성\n### ${analysisToUse.title}\n${analysisToUse.conclusion}\n\n## 공통 지지 의견\n${analysisToUse.supportingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 반대/다른 시각\n${analysisToUse.opposingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 새로운 통찰\n${analysisToUse.newInsight}\n\n## 미해결 질문\n${analysisToUse.unresolvedQuestions.map(i => `- ${i}`).join('\n')}\n\n## 실천 항목\n${analysisToUse.actionItems.map(i => `- ${i}`).join('\n')}\n`;
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -492,9 +499,9 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
 
         {/* AI Analysis */}
         {isMeetingCreator ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage />
+          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage onDownloadMD={handleDownloadMarkdown} onAnalysisUpdated={setInitialAnalysis} />
         ) : initialAnalysis ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage={false} />
+          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage={false} onDownloadMD={handleDownloadMarkdown} onAnalysisUpdated={setInitialAnalysis} />
         ) : (
           <div className="glass-card rounded-2xl p-4 sm:p-6 flex items-center justify-center text-center space-y-4">
              <p className="text-sm text-on-surface-variant text-readable">진행자가 AI 리포트를 공개하면 이 위치에 나타납니다.</p>
