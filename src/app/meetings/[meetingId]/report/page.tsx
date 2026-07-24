@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { getLocalSession, UserSession } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { renderFormattedText } from '@/lib/linkify';
+import { GitHubExportModal } from '@/components/github-export-modal';
 import Link from 'next/link';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ function mockGetReactions(meetingId: string): Record<string, Reaction[]> {
 // ── AI Section Component ──────────────────────────────────────────────────────
 
 function AIAnalysisSection({
-  meetingId, notes, initialAnalysis, canManage, onDownloadMD, onAnalysisUpdated
+  meetingId, notes, initialAnalysis, canManage, onDownloadMD, onAnalysisUpdated, onOpenGitHubExport
 }: {
   meetingId: string;
   notes: Note[];
@@ -70,6 +71,7 @@ function AIAnalysisSection({
   canManage: boolean;
   onDownloadMD?: (analysis: AIAnalysis) => void;
   onAnalysisUpdated?: (analysis: AIAnalysis) => void;
+  onOpenGitHubExport?: (analysis: AIAnalysis) => void;
 }) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(initialAnalysis ?? null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -269,10 +271,15 @@ function AIAnalysisSection({
           
           <div className="flex flex-col sm:flex-row sm:justify-end pt-2 gap-3">
             {analysis && (
-              <button onClick={() => onDownloadMD?.(analysis)} className="text-sm font-semibold text-primary bg-primary/10 px-4 py-2 rounded-full hover:bg-primary/20 transition-all flex items-center justify-center gap-1.5 shadow-sm">
-                <span className="material-symbols-outlined text-[16px]">download</span>
-                MD 파일 다운로드
-              </button>
+              <>
+                <button onClick={() => onDownloadMD?.(analysis)} className="text-sm font-semibold text-primary bg-primary/10 px-4 py-2 rounded-full hover:bg-primary/20 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                  <span className="material-symbols-outlined text-[16px]">download</span>
+                  MD 파일 다운로드
+                </button>
+                <button onClick={() => onOpenGitHubExport?.(analysis)} className="text-sm font-semibold text-on-surface bg-surface-variant/70 hover:bg-surface-variant px-4 py-2 rounded-full transition-all flex items-center justify-center gap-1.5 shadow-sm border border-outline-variant/20">
+                  <span>🐙 GitHub에 저장</span>
+                </button>
+              </>
             )}
             {canManage && (
               <button onClick={handleAnalyze} disabled={isAnalyzing} className="text-sm font-semibold text-on-surface-variant hover:text-primary flex items-center justify-center gap-1 transition-colors px-3 py-2">
@@ -304,6 +311,8 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
 
   const [isMeetingCreator, setIsMeetingCreator] = useState(false);
   const [initialAnalysis, setInitialAnalysis] = useState<AIAnalysis | null>(null);
+  const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
+  const [exportMarkdownText, setExportMarkdownText] = useState('');
 
   // Redirect if no session
   useEffect(() => {
@@ -372,6 +381,14 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleOpenGitHubModal = (targetAnalysis?: AIAnalysis | null) => {
+    const analysisToUse = targetAnalysis || initialAnalysis;
+    if (!analysisToUse || !meeting) return;
+    const md = `# ${meeting.title}\n\n**주제**: ${meeting.topic}\n**날짜**: ${new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('ko-KR')}\n\n## 집단지성\n### ${analysisToUse.title}\n${analysisToUse.conclusion}\n\n## 공통 지지 의견\n${analysisToUse.supportingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 반대/다른 시각\n${analysisToUse.opposingIdeas.map(i => `- ${i}`).join('\n')}\n\n## 새로운 통찰\n${analysisToUse.newInsight}\n\n## 미해결 질문\n${analysisToUse.unresolvedQuestions.map(i => `- ${i}`).join('\n')}\n\n## 실천 항목\n${analysisToUse.actionItems.map(i => `- ${i}`).join('\n')}\n`;
+    setExportMarkdownText(md);
+    setIsGitHubModalOpen(true);
   };
 
   const handleShare = async () => {
@@ -443,11 +460,16 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
             </h1>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                        {initialAnalysis && (
-              <button onClick={() => handleDownloadMarkdown(initialAnalysis)} className="flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full bg-primary text-white hover:bg-primary/90 transition-colors text-xs sm:text-sm font-bold shadow-md">
-                <span className="material-symbols-outlined text-[16px] sm:text-[18px]">download</span>
-                <span>MD 다운로드</span>
-              </button>
+            {initialAnalysis && (
+              <>
+                <button onClick={() => handleDownloadMarkdown(initialAnalysis)} className="flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full bg-primary text-white hover:bg-primary/90 transition-colors text-xs sm:text-sm font-bold shadow-md">
+                  <span className="material-symbols-outlined text-[16px] sm:text-[18px]">download</span>
+                  <span>MD 다운로드</span>
+                </button>
+                <button onClick={() => handleOpenGitHubModal(initialAnalysis)} className="flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full glass-card hover:bg-surface-variant transition-colors text-xs sm:text-sm font-bold text-on-surface">
+                  <span>🐙 GitHub에 저장</span>
+                </button>
+              </>
             )}
             <button onClick={handleShare} className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-full glass-card hover:bg-surface-variant transition-colors text-sm font-semibold text-on-surface">
               <span className="material-symbols-outlined text-[18px]">{copied ? 'check' : 'share'}</span>
@@ -499,9 +521,9 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
 
         {/* AI Analysis */}
         {isMeetingCreator ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage onDownloadMD={handleDownloadMarkdown} onAnalysisUpdated={setInitialAnalysis} />
+          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage onDownloadMD={handleDownloadMarkdown} onAnalysisUpdated={setInitialAnalysis} onOpenGitHubExport={handleOpenGitHubModal} />
         ) : initialAnalysis ? (
-          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage={false} onDownloadMD={handleDownloadMarkdown} onAnalysisUpdated={setInitialAnalysis} />
+          <AIAnalysisSection meetingId={meetingId} notes={notes} initialAnalysis={initialAnalysis} canManage={false} onDownloadMD={handleDownloadMarkdown} onAnalysisUpdated={setInitialAnalysis} onOpenGitHubExport={handleOpenGitHubModal} />
         ) : (
           <div className="glass-card rounded-2xl p-4 sm:p-6 flex items-center justify-center text-center space-y-4">
              <p className="text-sm text-on-surface-variant text-readable">진행자가 AI 리포트를 공개하면 이 위치에 나타납니다.</p>
@@ -623,6 +645,14 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
           <p className="text-[10px] text-on-surface-variant tracking-widest uppercase font-bold text-readable">MINDWEAVE AI Collaboration Platform • {formattedDate}</p>
         </footer>
       </main>
+
+      <GitHubExportModal
+        isOpen={isGitHubModalOpen}
+        onClose={() => setIsGitHubModalOpen(false)}
+        meetingId={meetingId}
+        meetingTitle={meeting?.title || '모임_리포트'}
+        markdownContent={exportMarkdownText}
+      />
     </>
   );
 }
