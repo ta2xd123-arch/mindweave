@@ -6,6 +6,7 @@ import { useState, useEffect, use, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getLocalSession, UserSession } from '@/lib/auth';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { renderFormattedText } from '@/lib/linkify';
 import {
   AlertCircle,
 } from 'lucide-react';
@@ -698,7 +699,7 @@ export default function MeetingRoom({ params }: { params: Promise<{ meetingId: s
                             </div>
                           </div>
                         ) : (
-                          <p className="text-on-surface whitespace-pre-wrap text-[15px] md:text-[15px] text-readable">{note.content}</p>
+                          <p className="text-on-surface whitespace-pre-wrap text-[15px] md:text-[15px] text-readable">{renderFormattedText(note.content)}</p>
                         )}
                       </div>
 

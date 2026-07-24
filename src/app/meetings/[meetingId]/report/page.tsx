@@ -6,6 +6,7 @@ import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { getLocalSession, UserSession } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { renderFormattedText } from '@/lib/linkify';
 import Link from 'next/link';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -590,7 +591,7 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
                             </div>
                             <span className="text-[10px] text-on-surface-variant font-mono">{new Date(note.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
-                          <p className="text-sm text-on-surface whitespace-pre-wrap text-readable">{note.content}</p>
+                          <p className="text-sm text-on-surface whitespace-pre-wrap text-readable">{renderFormattedText(note.content)}</p>
                           {nr.length > 0 && (
                             <div className="flex items-center gap-1.5 mt-4 pt-3 border-t border-outline-variant/10">
                               <span className="material-symbols-outlined text-[14px] text-primary" style={{fontVariationSettings: "'FILL' 1"}}>thumb_up</span>
