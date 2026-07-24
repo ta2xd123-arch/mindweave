@@ -98,7 +98,7 @@ function AIAnalysisSection({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'AI 분석 실패');
-      setAnalysis({ ...data.analysis, status: 'draft' });
+      setAnalysis({ ...data.analysis, status: 'published' });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'AI 분석 실패');
     } finally {

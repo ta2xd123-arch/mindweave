@@ -244,7 +244,7 @@ ${notesText}
           new_insight: analysis.newInsight || '',
           unresolved_questions: analysis.unresolvedQuestions || [],
           action_items: analysis.actionItems || [],
-          status: 'draft',
+          status: 'published',
           // Requires the reviewed MINDWEAVE-only migration before deployment.
           created_by: authUser.id,
         })
