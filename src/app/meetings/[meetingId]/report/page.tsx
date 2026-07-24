@@ -443,10 +443,10 @@ export default function ReportPage({ params }: { params: Promise<{ meetingId: st
             </h1>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                        {initialAnalysis?.status === 'published' && (
-              <button onClick={handleDownloadMarkdown} className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-surface-variant hover:bg-surface-variant/80 transition-colors text-sm font-bold">
-                <span className="material-symbols-outlined text-[18px]">download</span>
-                <span className="hidden sm:inline">MD 다운로드</span>
+                        {initialAnalysis && (
+              <button onClick={() => handleDownloadMarkdown(initialAnalysis)} className="flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full bg-primary text-white hover:bg-primary/90 transition-colors text-xs sm:text-sm font-bold shadow-md">
+                <span className="material-symbols-outlined text-[16px] sm:text-[18px]">download</span>
+                <span>MD 다운로드</span>
               </button>
             )}
             <button onClick={handleShare} className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-full glass-card hover:bg-surface-variant transition-colors text-sm font-semibold text-on-surface">
