@@ -133,7 +133,7 @@ function AIAnalysisSection({
         </h3>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-[10px] bg-primary/10 text-primary px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-primary/20">
-            Gemini 3.5 Flash
+            Gemini 3.6 Flash
           </span>
           <button onClick={() => setExpanded(!expanded)} className="text-on-surface-variant hover:text-on-surface transition-colors p-1">
             <span className="material-symbols-outlined text-[20px]">{expanded ? 'expand_less' : 'expand_more'}</span>
